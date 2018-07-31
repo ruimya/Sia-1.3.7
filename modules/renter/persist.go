@@ -43,6 +43,10 @@ var (
 	// ErrNonShareSuffix is an error when the suffix of a file does not match the defined share extension
 	ErrNonShareSuffix = errors.New("suffix of file must be " + ShareExtension)
 
+	dirMetadataHeader = persist.Metadata{
+		Header:  "Sia Directory Metadata",
+		Version: persistVersion,
+	}
 	settingsMetadata = persist.Metadata{
 		Header:  "Renter Persistence",
 		Version: persistVersion,
@@ -57,6 +61,12 @@ var (
 )
 
 type (
+	// dirMetadata contains the metadata information about a renter directory
+	dirMetadata struct {
+		LastUpdate    int64
+		MinRedundancy float64
+	}
+
 	// persist contains all of the persistent renter data.
 	persistence struct {
 		MaxDownloadSpeed int64
@@ -198,7 +208,7 @@ func (r *Renter) createDir(siapath string) error {
 	// TODO: this should be change when files are moved out of the top level
 	// directory of the renter.
 	for path != filepath.Dir(r.persistDir) {
-		if err := createDirMetadata(path); err != nil {
+		if err := r.createDirMetadata(path); err != nil {
 			return err
 		}
 		path = filepath.Dir(path)
@@ -206,9 +216,9 @@ func (r *Renter) createDir(siapath string) error {
 	return nil
 }
 
-// createDirMetadata makes sure there is a metadata file in the directory and
-// updates or creates one as needed
-func createDirMetadata(path string) error {
+// createDirMetadata makes sure there is a metadata file in each directory of
+// the renter and updates or creates one as needed
+func (r *Renter) createDirMetadata(path string) error {
 	fullPath := filepath.Join(path, SiaDirMetadata)
 	// Check if metadata file exists
 	if _, err := os.Stat(fullPath); err == nil {
@@ -217,17 +227,76 @@ func createDirMetadata(path string) error {
 	}
 
 	// TODO: update to get actual min redundancy
-	data := struct {
-		LastUpdate    int64
-		MinRedundancy float64
-	}{time.Now().UnixNano(), float64(0)}
-
-	metadataHeader := persist.Metadata{
-		Header:  "Sia Directory Metadata",
-		Version: persistVersion,
+	data := dirMetadata{
+		LastUpdate:    time.Now().UnixNano(),
+		MinRedundancy: float64(0),
 	}
 
-	return persist.SaveJSON(metadataHeader, data, fullPath)
+	return r.saveDirMetadata(path, data)
+}
+
+// loadDirMetadata loads the directory metadata from disk
+func (r *Renter) loadDirMetadata(path string) (dirMetadata, error) {
+	var metadata dirMetadata
+	err := persist.LoadJSON(dirMetadataHeader, &metadata, filepath.Join(path, SiaDirMetadata))
+	if os.IsNotExist(err) {
+		if err = r.createDirMetadata(path); err != nil {
+			return metadata, err
+		}
+		return r.loadDirMetadata(path)
+	}
+	if err != nil {
+		return metadata, err
+	}
+	return metadata, nil
+}
+
+// saveDirMetadata saves the directory metadata to disk
+func (r *Renter) saveDirMetadata(path string, metadata dirMetadata) error {
+	return persist.SaveJSON(dirMetadataHeader, metadata, filepath.Join(path, SiaDirMetadata))
+}
+
+// updateDirMetadata updates all the renter's directories' metadata
+func (r *Renter) updateDirMetadata(redundancies map[string]float64) error {
+	for path, redundancy := range redundancies {
+		err := r.saveDirMetadata(path, dirMetadata{
+			LastUpdate:    time.Now().UnixNano(),
+			MinRedundancy: redundancy,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// saveFile saves a file to the renter directory.
+func (r *Renter) saveFile(f *siafile.SiaFile) error {
+	if f.Deleted() { // TODO: violation of locking convention
+		return errors.New("can't save deleted file")
+	}
+	// Create directory structure specified in nickname.
+	fullPath := filepath.Join(r.persistDir, f.SiaPath()+ShareExtension)
+	err := r.createDir(filepath.Dir(fullPath))
+	if err != nil {
+		return err
+	}
+
+	// Open SafeFile handle.
+	handle, err := persist.NewSafeFile(fullPath)
+	if err != nil {
+		return err
+	}
+	defer handle.Close()
+
+	// Write file data.
+	err = r.shareFiles([]*siafile.SiaFile{f}, handle)
+	if err != nil {
+		return err
+	}
+
+	// Commit the SafeFile.
+	return handle.CommitSync()
 }
 
 // saveSync stores the current renter data to disk and then syncs to disk.
