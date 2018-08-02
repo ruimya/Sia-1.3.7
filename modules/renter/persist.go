@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -235,6 +236,41 @@ func (r *Renter) createDirMetadata(path string) error {
 	return r.saveDirMetadata(path, data)
 }
 
+// findMinDirRedundancy walks the renter's persistance directory and finds the
+// directory with the lowest redundancy
+func (r *Renter) findMinDirRedundancy() string {
+	// This method will log errors but not return them
+	dir := r.persistDir
+	redundancy := float64(100)
+	_ = filepath.Walk(r.persistDir, func(path string, info os.FileInfo, err error) error {
+		// Skip files
+		//
+		// TODO: Currently skipping contracts directory until renter files are
+		// not stored in the top level directory of the renter.  Then the
+		// starting point will be the renter's files directory and not
+		// r.persistDir
+		contractsDir := filepath.Join(r.persistDir, "contracts")
+		if !info.IsDir() || path == contractsDir {
+			return nil
+		}
+
+		// Read directory redundancy
+		metadata, err := r.loadDirMetadata(path)
+		if err != nil {
+			r.log.Println("WARN: Could not load directory metadata:", err)
+			return nil
+		}
+
+		// Check redundancy
+		if metadata.MinRedundancy <= redundancy {
+			redundancy = metadata.MinRedundancy
+			dir = path
+		}
+		return nil
+	})
+	return dir
+}
+
 // loadDirMetadata loads the directory metadata from disk
 func (r *Renter) loadDirMetadata(path string) (dirMetadata, error) {
 	var metadata dirMetadata
@@ -334,34 +370,52 @@ func (r *Renter) loadSiaFiles() error {
 	})
 }
 
+// readDirSiaFiles reads the sia files in the directory and returns them as a
+// map of sia files
+func (r *Renter) readDirSiaFiles(path string) map[string]*siafile.SiaFile {
+	// This method will log errors and continue to try and return as many files
+	// as possible
+
+	// Make map for sia files
+	siaFiles := make(map[string]*siafile.SiaFile)
+
+	// Read directory
+	finfos, err := ioutil.ReadDir(path)
+	if err != nil {
+		r.log.Println("WARN: Error in reading files in least redundant directory:", err)
+		return siaFiles
+	}
+
+	for _, fi := range finfos {
+		filename := filepath.Join(path, fi.Name())
+		// Open the file.
+		file, err := os.Open(filename)
+		defer file.Close()
+		if err != nil {
+			r.log.Println("ERROR: could not open .sia file:", err)
+
+		}
+
+		// Read the file contents and add to map.
+		files, err := r.readSharedFiles(file)
+		if err != nil {
+			r.log.Println("ERROR: could not read .sia file:", err)
+			continue
+		}
+		for k, v := range files {
+			siaFiles[k] = v
+		}
+
+	}
+	return siaFiles
+}
+
 // readSiaFiles reads all the sia files in the renter and returns a map of sia files
 func (r *Renter) readSiaFiles() (map[string]*siafile.SiaFile, error) {
 	siaFiles := make(map[string]*siafile.SiaFile)
 	// Recursively read all files found in renter directory. Errors
 	// encountered during loading are logged, but are not considered fatal.
 	err := filepath.Walk(r.persistDir, func(path string, info os.FileInfo, err error) error {
-		// Verify that no other thread is using this filename.
-		err = func() error {
-			persist.ActiveFilesMu.Lock()
-			defer persist.ActiveFilesMu.Unlock()
-
-			_, exists := persist.ActiveFiles[path]
-			if exists {
-				return persist.ErrFileInUse
-			}
-			persist.ActiveFiles[path] = struct{}{}
-			return nil
-		}()
-		if err != nil {
-			r.log.Println("WARN: file or folder already being accessed:", err)
-			return nil
-		}
-		// Release the lock at the end of the function.
-		defer func() {
-			persist.ActiveFilesMu.Lock()
-			delete(persist.ActiveFiles, path)
-			persist.ActiveFilesMu.Unlock()
-		}()
 		// This error is non-nil if filepath.Walk couldn't stat a file or
 		// folder.
 		if err != nil {
@@ -522,6 +576,7 @@ func (r *Renter) readSharedFiles(reader io.Reader) (map[string]*siafile.SiaFile,
 
 	// Read each file.
 	files := make([]*file, numFiles)
+	rlock := r.mu.RLock()
 	for i := range files {
 		files[i] = new(file)
 		err := dec.Decode(files[i])
@@ -541,6 +596,7 @@ func (r *Renter) readSharedFiles(reader io.Reader) (map[string]*siafile.SiaFile,
 			files[i].name = origName + "_" + strconv.Itoa(dupCount)
 		}
 	}
+	r.mu.RUnlock(rlock)
 
 	// Build map of sia files.
 	siaFiles := make(map[string]*siafile.SiaFile)
