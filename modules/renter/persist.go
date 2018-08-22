@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"io"
 	"io/ioutil"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -59,13 +60,33 @@ var (
 	// Persist Version Numbers
 	persistVersion040 = "0.4"
 	persistVersion133 = "1.3.3"
+
+	// timeBetweenRepair is the amount of time to wait before trying to repair a
+	// file again.  This is to prevent one bad file being repaired continuosly
+	// while other files degrade
+	//
+	// TODO - threadedUpload loop only runs every 15mins, unless renter uploads
+	// file. How should this impact the value of timeBetweenRepair
+	timeBetweenRepair = func() int64 {
+		switch build.Release {
+		case "dev":
+			return int64(time.Minute * 5)
+		case "standard":
+			return int64(time.Hour * 2)
+		case "testing":
+			return int64(time.Second * 5)
+		}
+		panic("undefined timeBetweenRepair")
+	}()
 )
 
 type (
 	// dirMetadata contains the metadata information about a renter directory
 	dirMetadata struct {
+		LastRepair    int64
 		LastUpdate    int64
 		MinRedundancy float64
+		NumSiaFiles   int
 	}
 
 	// persist contains all of the persistent renter data.
@@ -217,32 +238,48 @@ func (r *Renter) createDir(siapath string) error {
 	return nil
 }
 
-// createDirMetadata makes sure there is a metadata file in each directory of
-// the renter and updates or creates one as needed
+// createDirMetadata makes sure there is a metadata file in the directory
+// creates one as needed
 func (r *Renter) createDirMetadata(path string) error {
 	fullPath := filepath.Join(path, SiaDirMetadata)
 	// Check if metadata file exists
 	if _, err := os.Stat(fullPath); err == nil {
-		// TODO: update metadata file
 		return nil
 	}
 
-	// TODO: update to get actual min redundancy
+	// Initialize metadata
 	data := dirMetadata{
+		LastRepair:    int64(0),
 		LastUpdate:    time.Now().UnixNano(),
 		MinRedundancy: float64(0),
+		NumSiaFiles:   0,
 	}
-
 	return r.saveDirMetadata(path, data)
 }
 
 // findMinDirRedundancy walks the renter's persistance directory and finds the
-// directory with the lowest redundancy
-func (r *Renter) findMinDirRedundancy() string {
-	// This method will log errors but not return them
+// directory with the lowest redundancy. Since it uses Walk() the directory
+// returned will be the lowest level directory
+//
+// TODO - This could be quicker if we just followed the path of lowest
+// redundancy instead of walking the directory. Will need to make sure that
+// managedUpdateRenterRedundancy makes sure that each directory's redundancy is
+// the lowest redundancy of any of its files or sub directories
+func (r *Renter) findMinDirRedundancy() (string, error) {
+	var metadata, metadataAnyTime dirMetadata
 	dir := r.persistDir
-	redundancy := float64(100)
+	redundancy := math.MaxFloat64
+	dirAnyTime := r.persistDir // dirAnyTime is the dir regardless of timeBetweenRepair
+
+	// Read renter persist directory metadata
+	persistDirMetadata, err := r.loadDirMetadata(dir)
+	if err != nil {
+		r.log.Printf("WARN: Could not load directory metadata for %v: %v", dir, err)
+		return dir, err
+	}
 	_ = filepath.Walk(r.persistDir, func(path string, info os.FileInfo, err error) error {
+		// This Walk will log errors but not return them
+
 		// Skip files
 		//
 		// TODO: Currently skipping contracts directory until renter files are
@@ -254,21 +291,38 @@ func (r *Renter) findMinDirRedundancy() string {
 			return nil
 		}
 
-		// Read directory redundancy
-		metadata, err := r.loadDirMetadata(path)
+		// Read directory metadata
+		md, err := r.loadDirMetadata(path)
 		if err != nil {
-			r.log.Println("WARN: Could not load directory metadata:", err)
+			r.log.Printf("WARN: Could not load directory metadata for %v: %v", path, err)
+			return nil
+		}
+
+		// Skip empty directories
+		if md.NumSiaFiles == 0 {
 			return nil
 		}
 
 		// Check redundancy
-		if metadata.MinRedundancy <= redundancy {
-			redundancy = metadata.MinRedundancy
+		if md.MinRedundancy > redundancy {
+			return nil
+		}
+		metadataAnyTime = md
+		dirAnyTime = path
+		if md.LastRepair < time.Now().UnixNano()-timeBetweenRepair {
+			metadata = md
+			redundancy = md.MinRedundancy
 			dir = path
 		}
 		return nil
 	})
-	return dir
+
+	if dir == r.persistDir && persistDirMetadata.LastRepair >= time.Now().UnixNano()-timeBetweenRepair {
+		metadataAnyTime.LastRepair = time.Now().UnixNano()
+		return dirAnyTime, r.saveDirMetadata(dirAnyTime, metadataAnyTime)
+	}
+	metadata.LastRepair = time.Now().UnixNano()
+	return dir, r.saveDirMetadata(dir, metadata)
 }
 
 // loadDirMetadata loads the directory metadata from disk
@@ -295,44 +349,33 @@ func (r *Renter) saveDirMetadata(path string, metadata dirMetadata) error {
 // updateDirMetadata updates all the renter's directories' metadata
 func (r *Renter) updateDirMetadata(redundancies map[string]float64) error {
 	for path, redundancy := range redundancies {
-		err := r.saveDirMetadata(path, dirMetadata{
+		// Update number of files
+		files, err := ioutil.ReadDir(path)
+		if err != nil {
+			return err
+		}
+		siaFiles := 0
+		for _, f := range files {
+			if filepath.Ext(f.Name()) == ShareExtension {
+				siaFiles++
+				continue
+			}
+		}
+		metadata, err := r.loadDirMetadata(path)
+		if err != nil {
+			return err
+		}
+		err = r.saveDirMetadata(path, dirMetadata{
+			LastRepair:    metadata.LastRepair,
 			LastUpdate:    time.Now().UnixNano(),
 			MinRedundancy: redundancy,
+			NumSiaFiles:   siaFiles,
 		})
 		if err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// saveFile saves a file to the renter directory.
-func (r *Renter) saveFile(f *siafile.SiaFile) error {
-	if f.Deleted() { // TODO: violation of locking convention
-		return errors.New("can't save deleted file")
-	}
-	// Create directory structure specified in nickname.
-	fullPath := filepath.Join(r.persistDir, f.SiaPath()+ShareExtension)
-	err := r.createDir(filepath.Dir(fullPath))
-	if err != nil {
-		return err
-	}
-
-	// Open SafeFile handle.
-	handle, err := persist.NewSafeFile(fullPath)
-	if err != nil {
-		return err
-	}
-	defer handle.Close()
-
-	// Write file data.
-	err = r.shareFiles([]*siafile.SiaFile{f}, handle)
-	if err != nil {
-		return err
-	}
-
-	// Commit the SafeFile.
-	return handle.CommitSync()
 }
 
 // saveSync stores the current renter data to disk and then syncs to disk.
@@ -370,89 +413,89 @@ func (r *Renter) loadSiaFiles() error {
 	})
 }
 
-// readDirSiaFiles reads the sia files in the directory and returns them as a
-// map of sia files
-func (r *Renter) readDirSiaFiles(path string) map[string]*siafile.SiaFile {
-	// This method will log errors and continue to try and return as many files
-	// as possible
+// // readDirSiaFiles reads the sia files in the directory and returns them as a
+// // map of sia files
+// func (r *Renter) readDirSiaFiles(path string) map[string]*siafile.SiaFile {
+// 	// This method will log errors and continue to try and return as many files
+// 	// as possible
 
-	// Make map for sia files
-	siaFiles := make(map[string]*siafile.SiaFile)
+// 	// Make map for sia files
+// 	siaFiles := make(map[string]*siafile.SiaFile)
 
-	// Read directory
-	finfos, err := ioutil.ReadDir(path)
-	if err != nil {
-		r.log.Println("WARN: Error in reading files in least redundant directory:", err)
-		return siaFiles
-	}
+// 	// Read directory
+// 	finfos, err := ioutil.ReadDir(path)
+// 	if err != nil {
+// 		r.log.Println("WARN: Error in reading files in least redundant directory:", err)
+// 		return siaFiles
+// 	}
 
-	for _, fi := range finfos {
-		filename := filepath.Join(path, fi.Name())
-		// Open the file.
-		file, err := os.Open(filename)
-		defer file.Close()
-		if err != nil {
-			r.log.Println("ERROR: could not open .sia file:", err)
+// 	for _, fi := range finfos {
+// 		filename := filepath.Join(path, fi.Name())
+// 		// Open the file.
+// 		file, err := os.Open(filename)
+// 		defer file.Close()
+// 		if err != nil {
+// 			r.log.Println("ERROR: could not open .sia file:", err)
 
-		}
+// 		}
 
-		// Read the file contents and add to map.
-		files, err := r.readSharedFiles(file)
-		if err != nil {
-			r.log.Println("ERROR: could not read .sia file:", err)
-			continue
-		}
-		for k, v := range files {
-			siaFiles[k] = v
-		}
+// 		// Read the file contents and add to map.
+// 		files, err := r.readSharedFiles(file)
+// 		if err != nil {
+// 			r.log.Println("ERROR: could not read .sia file:", err)
+// 			continue
+// 		}
+// 		for k, v := range files {
+// 			siaFiles[k] = v
+// 		}
 
-	}
-	return siaFiles
-}
+// 	}
+// 	return siaFiles
+// }
 
-// readSiaFiles reads all the sia files in the renter and returns a map of sia files
-func (r *Renter) readSiaFiles() (map[string]*siafile.SiaFile, error) {
-	siaFiles := make(map[string]*siafile.SiaFile)
-	// Recursively read all files found in renter directory. Errors
-	// encountered during loading are logged, but are not considered fatal.
-	err := filepath.Walk(r.persistDir, func(path string, info os.FileInfo, err error) error {
-		// This error is non-nil if filepath.Walk couldn't stat a file or
-		// folder.
-		if err != nil {
-			r.log.Println("WARN: could not stat file or folder during walk:", err)
-			return nil
-		}
+// // readSiaFiles reads all the sia files in the renter and returns a map of sia files
+// func (r *Renter) readSiaFiles() (map[string]*siafile.SiaFile, error) {
+// 	siaFiles := make(map[string]*siafile.SiaFile)
+// 	// Recursively read all files found in renter directory. Errors
+// 	// encountered during loading are logged, but are not considered fatal.
+// 	err := filepath.Walk(r.persistDir, func(path string, info os.FileInfo, err error) error {
+// 		// This error is non-nil if filepath.Walk couldn't stat a file or
+// 		// folder.
+// 		if err != nil {
+// 			r.log.Println("WARN: could not stat file or folder during walk:", err)
+// 			return nil
+// 		}
 
-		// Skip folders and non-sia files.
-		if info.IsDir() || filepath.Ext(path) != ShareExtension {
-			return nil
-		}
+// 		// Skip folders and non-sia files.
+// 		if info.IsDir() || filepath.Ext(path) != ShareExtension {
+// 			return nil
+// 		}
 
-		// Open the file.
-		file, err := os.Open(path)
-		if err != nil {
-			r.log.Println("ERROR: could not open .sia file:", err)
-			return nil
-		}
-		defer file.Close()
+// 		// Open the file.
+// 		file, err := os.Open(path)
+// 		if err != nil {
+// 			r.log.Println("ERROR: could not open .sia file:", err)
+// 			return nil
+// 		}
+// 		defer file.Close()
 
-		// Read the file contents and add to map.
-		files, err := r.readSharedFiles(file)
-		if err != nil {
-			r.log.Println("ERROR: could not read .sia file:", err)
-			return nil
-		}
-		for k, v := range files {
-			siaFiles[k] = v
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
+// 		// Read the file contents and add to map.
+// 		files, err := r.readSharedFiles(file)
+// 		if err != nil {
+// 			r.log.Println("ERROR: could not read .sia file:", err)
+// 			return nil
+// 		}
+// 		for k, v := range files {
+// 			siaFiles[k] = v
+// 		}
+// 		return nil
+// 	})
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	return siaFiles, nil
-}
+// 	return siaFiles, nil
+// }
 
 // load fetches the saved renter data from disk.
 func (r *Renter) loadSettings() error {
@@ -548,69 +591,70 @@ func (r *Renter) loadSharedFiles(reader io.Reader, repairPath string) ([]string,
 	return names, nil
 }
 
-// readSharedFiles reads .sia data from reader and returns a map of sia files
-func (r *Renter) readSharedFiles(reader io.Reader) (map[string]*siafile.SiaFile, error) {
-	// read header
-	var header [15]byte
-	var version string
-	var numFiles uint64
-	err := encoding.NewDecoder(reader).DecodeAll(
-		&header,
-		&version,
-		&numFiles,
-	)
-	if err != nil {
-		return nil, err
-	} else if header != shareHeader {
-		return nil, ErrBadFile
-	} else if version != shareVersion {
-		return nil, ErrIncompatible
-	}
+// // readSharedFiles reads .sia data from reader and returns a map of sia files
+// func (r *Renter) readSharedFiles(reader io.Reader) (map[string]*siafile.SiaFile, error) {
+// 	// read header
+// 	var header [15]byte
+// 	var version string
+// 	var numFiles uint64
+// 	err := encoding.NewDecoder(reader).DecodeAll(
+// 		&header,
+// 		&version,
+// 		&numFiles,
+// 	)
+// 	if err != nil {
+// 		return nil, err
+// 	} else if header != shareHeader {
+// 		return nil, ErrBadFile
+// 	} else if version != shareVersion {
+// 		return nil, ErrIncompatible
+// 	}
 
-	// Create decompressor.
-	unzip, err := gzip.NewReader(reader)
-	if err != nil {
-		return nil, err
-	}
-	dec := encoding.NewDecoder(unzip)
+// 	// Create decompressor.
+// 	unzip, err := gzip.NewReader(reader)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	dec := encoding.NewDecoder(unzip)
 
-	// Read each file.
-	files := make([]*file, numFiles)
-	rlock := r.mu.RLock()
-	for i := range files {
-		files[i] = new(file)
-		err := dec.Decode(files[i])
-		if err != nil {
-			return nil, err
-		}
+// 	// Read each file.
+// 	files := make([]*file, numFiles)
+// 	rlock := r.mu.RLock()
+// 	for i := range files {
+// 		files[i] = new(file)
+// 		err := dec.Decode(files[i])
+// 		if err != nil {
+// 			return nil, err
+// 		}
 
-		// Make sure the file's name does not conflict with existing files.
-		dupCount := 0
-		origName := files[i].name
-		for {
-			_, exists := r.files[files[i].name]
-			if !exists {
-				break
-			}
-			dupCount++
-			files[i].name = origName + "_" + strconv.Itoa(dupCount)
-		}
-	}
-	r.mu.RUnlock(rlock)
+// 		// Make sure the file's name does not conflict with existing files.
+// 		dupCount := 0
+// 		origName := files[i].name
+// 		for {
+// 			_, exists := r.files[files[i].name]
+// 			if !exists {
+// 				break
+// 			}
+// 			dupCount++
+// 			files[i].name = origName + "_" + strconv.Itoa(dupCount)
+// 		}
+// 	}
+// 	r.mu.RUnlock(rlock)
 
-	// Build map of sia files.
-	siaFiles := make(map[string]*siafile.SiaFile)
-	for _, f := range files {
-		siaFiles[f.name] = r.fileToSiaFile(f, r.persist.Tracking[f.name].RepairPath)
-	}
+// 	// Build map of sia files.
+// 	siaFiles := make(map[string]*siafile.SiaFile)
+// 	for _, f := range files {
+// 		f.RepairPath()
+// 		siaFiles[f.name] = r.fileToSiaFile(f, r.persist.Tracking[f.name].RepairPath)
+// 	}
 
-	return siaFiles, nil
-}
+// 	return siaFiles, nil
+// }
 
 // initPersist handles all of the persistence initialization, such as creating
 // the persistence directory and starting the logger.
 func (r *Renter) initPersist() error {
-	// Create the perist directory if it does not yet exist.
+	// Create the persist directory if it does not yet exist.
 	err := os.MkdirAll(r.persistDir, 0700)
 	if err != nil {
 		return err

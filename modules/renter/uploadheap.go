@@ -231,15 +231,22 @@ func (r *Renter) buildUnfinishedChunks(f *siafile.SiaFile, hosts map[string]stru
 // construct a chunk heap.
 func (r *Renter) managedBuildChunkHeap(hosts map[string]struct{}) {
 	// Find directory with lowest redundancy
-	dir := r.findMinDirRedundancy()
-
-	// Get files from directory
-	siaFiles := r.readDirSiaFiles(dir)
-
-	files := make([]*siafile.SiaFile, 0, len(siaFiles))
-	for _, file := range siaFiles {
-		files = append(files, file)
+	dir, err := r.findMinDirRedundancy()
+	if err != nil {
+		// error was logged in findMinDirRedundancy
+		return
 	}
+	// Get files from directory
+	// Get all the files holding the readlock.
+	lockID := r.mu.RLock()
+	files := make([]*siafile.SiaFile, 0, len(r.files))
+	for filename, file := range r.files {
+		fullpath := filepath.Join(r.persistDir, filename)
+		if filepath.Dir(fullpath) == dir {
+			files = append(files, file)
+		}
+	}
+	r.mu.RUnlock(lockID)
 
 	// Save host keys in map. We can't do that under the same lock since we
 	// need to call a public method on the file.
@@ -318,24 +325,25 @@ func (r *Renter) managedRefreshHostsAndWorkers() map[string]struct{} {
 	return hosts
 }
 
-// managedUpdateRenterRedundancy iterates over the renter's files and updates the
-// directories with the minimum redundancies
+// managedUpdateRenterRedundancy iterates over the renter's files and updates
+// the directories with the minimum redundancies
 //
 // TODO: the code of looping over files and building maps to then get the
 // redundancies could be broken out into it's own method.  It is used in
 // multiple places throughout the code I believe
+//
+// TODO: Currently reading files from memory, this can be updated to read files
+// from disk but that work should be included with the larger tasks of moving
+// files out of memory all together.
 func (r *Renter) managedUpdateRenterRedundancy() error {
-	// Read files from disk
-	siaFiles, err := r.readSiaFiles()
-	if err != nil {
-		return err
-	}
-
-	// Convert map of files to slice of files
-	files := make([]*siafile.SiaFile, 0, len(siaFiles))
-	for _, file := range siaFiles {
+	// Create slice of files while holding read lock
+	files := make([]*siafile.SiaFile, 0, len(r.files))
+	lockID := r.mu.RLock()
+	for _, file := range r.files {
+		// fmt.Println("File name", name)
 		files = append(files, file)
 	}
+	r.mu.RUnlock(lockID)
 
 	// Save host keys in map. We can't do that under the same lock since we
 	// need to call a public method on the file.
@@ -365,6 +373,8 @@ func (r *Renter) managedUpdateRenterRedundancy() error {
 	for _, file := range files {
 		redundancy := file.Redundancy(offline, goodForRenew)
 		path := filepath.Join(r.persistDir, filepath.Dir(file.SiaPath()))
+		// Update redundancies map, make sure that lowest redundancy is filtered
+		// up through the directory tree
 		for path != filepath.Dir(r.persistDir) {
 			r, ok := redundancies[path]
 			if ok && r > redundancy || !ok {
@@ -399,10 +409,6 @@ func (r *Renter) threadedUploadLoop() {
 		hosts := r.managedRefreshHostsAndWorkers()
 
 		// Build a min-heap of chunks organized by upload progress.
-		//
-		// TODO: After replacing the filesystem to resemble a tree, we'll be
-		// able to go through the filesystem piecewise instead of doing
-		// everything all at once.
 
 		// Update renter redundancy, errors will be logged but won't cause a
 		// failure as this is only performance related
