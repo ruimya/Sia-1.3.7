@@ -101,11 +101,7 @@ func LoadSiaFile(path string, wal *writeaheadlog.WAL) (*SiaFile, error) {
 		return sf, nil
 	}
 	// Otherwise load the chunks.
-	_, err = f.Seek(sf.staticMetadata.ChunkOffset, io.SeekStart)
-	if err != nil {
-		return nil, errors.AddContext(err, "failed to seek to chunkOffset")
-	}
-	rawChunks, err := ioutil.ReadAll(f)
+	rawChunks, err := sf.readChunks()
 	if err != nil {
 		return nil, errors.AddContext(err, "failed to read chunks from disk")
 	}
@@ -237,19 +233,8 @@ func (sf *SiaFile) allocateHeaderPage() (writeaheadlog.Update, error) {
 	if sf.staticMetadata.ChunkOffset%pageSize != 0 {
 		build.Critical("the chunk offset is not page aligned")
 	}
-	// Open the file.
-	f, err := os.Open(sf.siaFilePath)
-	if err != nil {
-		return writeaheadlog.Update{}, err
-	}
-	defer f.Close()
-	// Seek the chunk offset.
-	_, err = f.Seek(sf.staticMetadata.ChunkOffset, io.SeekStart)
-	if err != nil {
-		return writeaheadlog.Update{}, err
-	}
 	// Read all the chunk data.
-	chunkData, err := ioutil.ReadAll(f)
+	chunkData, err := sf.readChunks()
 	if err != nil {
 		return writeaheadlog.Update{}, err
 	}
@@ -365,6 +350,23 @@ func (sf *SiaFile) createInsertUpdate(index int64, data []byte) writeaheadlog.Up
 		Name:         updateInsertName,
 		Instructions: encoding.MarshalAll(sf.siaFilePath, index, data),
 	}
+}
+
+// readChunks reads the SiaFile's chunks from disk.
+func (sf *SiaFile) readChunks() ([]byte, error) {
+	// Open the file.
+	f, err := os.Open(sf.siaFilePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	// Seek the chunk offset.
+	_, err = f.Seek(sf.staticMetadata.ChunkOffset, io.SeekStart)
+	if err != nil {
+		return nil, err
+	}
+	// Read all the chunk data.
+	return ioutil.ReadAll(f)
 }
 
 // saveFile saves the whole SiaFile atomically.

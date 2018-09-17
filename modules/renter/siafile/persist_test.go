@@ -389,6 +389,27 @@ func TestDelete(t *testing.T) {
 	}
 }
 
+// TestDeleteTiny same as TestDelete but on tiny files.
+func TestDeleteTiny(t *testing.T) {
+	if testing.Short() {
+		t.SkipNow()
+	}
+	t.Parallel()
+
+	sf := newTinyTestFile()
+	// Delete file.
+	if err := sf.Delete(); err != nil {
+		t.Fatal("Failed to delete file", err)
+	}
+	// Check if file was deleted and if deleted flag was set.
+	if !sf.Deleted() {
+		t.Fatal("Deleted flag was not set correctly")
+	}
+	if _, err := os.Open(sf.siaFilePath); !os.IsNotExist(err) {
+		t.Fatal("Expected a file doesn't exist error but got", err)
+	}
+}
+
 // TestRename tests if renaming a siafile moves the file correctly and also
 // updates the metadata.
 func TestRename(t *testing.T) {
@@ -403,6 +424,12 @@ func TestRename(t *testing.T) {
 	newSiaPath := sf.staticMetadata.SiaPath + "1"
 	newSiaFilePath := sf.siaFilePath + "1"
 	oldSiaFilePath := sf.siaFilePath
+
+	// Read the file at the old path.
+	sourceData, err := ioutil.ReadFile(oldSiaFilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Rename file
 	if err := sf.Rename(newSiaPath, newSiaFilePath); err != nil {
@@ -426,6 +453,71 @@ func TestRename(t *testing.T) {
 	}
 	if sf.staticMetadata.SiaPath != newSiaPath {
 		t.Fatal("SiaPath wasn't updated correctly")
+	}
+
+	// Read the file at the new path.
+	destinationData, err := ioutil.ReadFile(newSiaFilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Make sure that the chunk data is still the same.
+	if !bytes.Equal(sourceData[sf.staticMetadata.ChunkOffset:], destinationData[sf.staticMetadata.ChunkOffset:]) {
+		t.Fatal("Source and destination chunk data doesn't match")
+	}
+}
+
+// TestRenameTiny is the same as TestRename but on a tiny SiaFile.
+func TestRenameTiny(t *testing.T) {
+	if testing.Short() {
+		t.SkipNow()
+	}
+	t.Parallel()
+
+	sf := newTinyTestFile()
+
+	// Create new paths for the file.
+	newSiaPath := sf.staticMetadata.SiaPath + "1"
+	newSiaFilePath := sf.siaFilePath + "1"
+	oldSiaFilePath := sf.siaFilePath
+
+	// Read the file at the old path.
+	sourceData, err := ioutil.ReadFile(oldSiaFilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Rename file
+	if err := sf.Rename(newSiaPath, newSiaFilePath); err != nil {
+		t.Fatal("Failed to rename file", err)
+	}
+
+	// Check if the file was moved.
+	if _, err := os.Open(oldSiaFilePath); !os.IsNotExist(err) {
+		t.Fatal("Expected a file doesn't exist error but got", err)
+	}
+	f, err := os.Open(newSiaFilePath)
+	if err != nil {
+		t.Fatal("Failed to open file at new location", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Check the metadata.
+	if sf.siaFilePath != newSiaFilePath {
+		t.Fatal("SiaFilePath wasn't updated correctly")
+	}
+	if sf.staticMetadata.SiaPath != newSiaPath {
+		t.Fatal("SiaPath wasn't updated correctly")
+	}
+
+	// Read the file at the new path.
+	destinationData, err := ioutil.ReadFile(newSiaFilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Make sure that the file data is still the same.
+	if !bytes.Equal(sourceData[sf.staticMetadata.ChunkOffset:], destinationData[sf.staticMetadata.ChunkOffset:]) {
+		t.Fatal("Source and destination data doesn't match")
 	}
 }
 

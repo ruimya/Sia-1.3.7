@@ -187,6 +187,11 @@ func (sf *SiaFile) Rename(newSiaPath, newSiaFilePath string) error {
 	}
 	// Create the delete update before changing the path to the new one.
 	updates := []writeaheadlog.Update{sf.createDeleteUpdate()}
+	// Read the chunk data before changing the path.
+	chunks, err := sf.readChunks()
+	if err != nil {
+		return err
+	}
 	// Rename file in memory.
 	sf.siaFilePath = newSiaFilePath
 	sf.staticMetadata.SiaPath = newSiaPath
@@ -199,11 +204,7 @@ func (sf *SiaFile) Rename(newSiaPath, newSiaFilePath string) error {
 	}
 	updates = append(updates, headerUpdate...)
 	// Write the chunks to the new location.
-	chunksUpdate, err := sf.saveChunks()
-	if err != nil {
-		return err
-	}
-	updates = append(updates, chunksUpdate)
+	updates = append(updates, sf.createInsertUpdate(sf.staticMetadata.ChunkOffset, chunks))
 	// Apply updates.
 	return sf.createAndApplyTransaction(updates...)
 }
