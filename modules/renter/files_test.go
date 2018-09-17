@@ -92,7 +92,7 @@ func TestFileNumChunks(t *testing.T) {
 			// If it doesn't divide evenly there will be 1 chunk padding.
 			expectedNumChunks++
 		}
-		if f.NumChunks() != expectedNumChunks {
+		if f.Size() > 0 && f.NumChunks() != expectedNumChunks {
 			t.Errorf("Test %v: expected %v, got %v", test, expectedNumChunks, f.NumChunks())
 		}
 	}

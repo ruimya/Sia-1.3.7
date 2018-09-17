@@ -29,7 +29,7 @@ var (
 	TinyFileSize = build.Select(build.Var{
 		Dev:      uint64(1 << 8),  // 256 Bytes
 		Standard: uint64(1 << 12), // 4 KiB
-		Testing:  uint64(1 << 12), // 4 Bytes
+		Testing:  uint64(4),       // 4 Bytes
 	}).(uint64)
 
 	// ecReedSolomon is the marshaled type of the reed solomon coder.

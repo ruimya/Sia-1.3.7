@@ -316,6 +316,15 @@ func TestNewTinyFile(t *testing.T) {
 	if sf.UploadProgress() != 100 {
 		t.Errorf("UploadProgress should be 1.0 but was %v", sf.UploadProgress())
 	}
+	// Ask the file for its content and compare it to the sourceData.
+	content, err := sf.LoadTinyFileContent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(content, sourceData) {
+		t.Fatal("LoadTinyFileContent return value doesn't match sourceData")
+	}
+
 }
 
 // TestCreateReadInsertUpdate tests if an update can be created using createInsertUpdate

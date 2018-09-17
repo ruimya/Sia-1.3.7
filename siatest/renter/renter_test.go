@@ -19,6 +19,7 @@ import (
 	"gitlab.com/NebulousLabs/Sia/crypto"
 	"gitlab.com/NebulousLabs/Sia/modules"
 	"gitlab.com/NebulousLabs/Sia/modules/renter"
+	"gitlab.com/NebulousLabs/Sia/modules/renter/siafile"
 	"gitlab.com/NebulousLabs/Sia/node"
 	"gitlab.com/NebulousLabs/Sia/node/api"
 	"gitlab.com/NebulousLabs/Sia/node/api/client"
@@ -811,6 +812,43 @@ func testUploadDownload(t *testing.T, tg *siatest.TestGroup) {
 	localFile, remoteFile, err := renter.UploadNewFileBlocking(fileSize, dataPieces, parityPieces)
 	if err != nil {
 		t.Fatal("Failed to upload a file for testing: ", err)
+	}
+	// Download the file synchronously directly into memory
+	_, err = renter.DownloadByStream(remoteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Download the file synchronously to a file on disk
+	_, err = renter.DownloadToDisk(remoteFile, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Download the file asynchronously and wait for the download to finish.
+	localFile, err = renter.DownloadToDisk(remoteFile, true)
+	if err != nil {
+		t.Error(err)
+	}
+	if err := renter.WaitForDownload(localFile, remoteFile); err != nil {
+		t.Error(err)
+	}
+	// Stream the file.
+	_, err = renter.Stream(remoteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Stream the file partially a few times. At least 1 byte is streamed.
+	for i := 0; i < 5; i++ {
+		from := fastrand.Intn(fileSize - 1)             // [0..fileSize-2]
+		to := from + 1 + fastrand.Intn(fileSize-from-1) // [from+1..fileSize-1]
+		_, err = renter.StreamPartial(remoteFile, localFile, uint64(from), uint64(to))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Upload another file but this time make it a tiny file.
+	localFile, remoteFile, err = renter.UploadNewFileBlocking(int(siafile.TinyFileSize), dataPieces, parityPieces)
+	if err != nil {
+		t.Fatal(err)
 	}
 	// Download the file synchronously directly into memory
 	_, err = renter.DownloadByStream(remoteFile)

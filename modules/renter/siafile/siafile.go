@@ -247,6 +247,9 @@ func (sf *SiaFile) Available(offline map[string]bool) bool {
 // offset of a file and also the relative offset within the chunk. If the
 // offset is out of bounds, chunkIndex will be equal to NumChunk().
 func (sf *SiaFile) ChunkIndexByOffset(offset uint64) (chunkIndex uint64, off uint64) {
+	if sf.TinyFile() {
+		panic("ChunkIndexByOffset should never be called on a tiny file")
+	}
 	for chunkIndex := uint64(0); chunkIndex < uint64(len(sf.staticChunks)); chunkIndex++ {
 		if sf.staticChunkSize(chunkIndex) > offset {
 			return chunkIndex, offset
@@ -258,13 +261,34 @@ func (sf *SiaFile) ChunkIndexByOffset(offset uint64) (chunkIndex uint64, off uin
 
 // ErasureCode returns the erasure coder used by the file.
 func (sf *SiaFile) ErasureCode(chunkIndex uint64) modules.ErasureCoder {
+	if sf.TinyFile() {
+		panic("ErasureCode should never be called on a tiny file")
+	}
 	return sf.staticChunks[chunkIndex].staticErasureCode
+}
+
+// LoadTinyFileContent reads the content of a tiny file from the SiaFile. This
+// should never be called on a regular file since regular files store their
+// data on the Sia network.
+func (sf *SiaFile) LoadTinyFileContent() ([]byte, error) {
+	if !sf.TinyFile() {
+		panic("LoadTinyFileContent should never be called on regular files")
+	}
+	// Load content.
+	content, err := sf.readChunks()
+	if err != nil {
+		return nil, errors.AddContext(err, "failed to read tiny file's content from disk")
+	}
+	return content, nil
 }
 
 // NumChunks returns the number of chunks the file consists of. This will
 // return the number of chunks the file consists of even if the file is not
 // fully uploaded yet.
 func (sf *SiaFile) NumChunks() uint64 {
+	if sf.TinyFile() {
+		panic("NumChunks should never be called on tiny files")
+	}
 	sf.mu.RLock()
 	defer sf.mu.RUnlock()
 	return uint64(len(sf.staticChunks))
@@ -274,7 +298,7 @@ func (sf *SiaFile) NumChunks() uint64 {
 // all the pieces for a certain index.
 func (sf *SiaFile) Pieces(chunkIndex uint64) ([][]Piece, error) {
 	if sf.TinyFile() {
-		return nil, nil
+		panic("Pieces should never be called on a tiny file.")
 	}
 	sf.mu.RLock()
 	defer sf.mu.RUnlock()

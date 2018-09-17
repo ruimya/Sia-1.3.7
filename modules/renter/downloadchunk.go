@@ -235,11 +235,8 @@ func (udc *unfinishedDownloadChunk) threadedRecoverLogicalData() error {
 	if udc.download.chunksRemaining == 0 {
 		// Download is complete, send out a notification and close the
 		// destination writer.
-		udc.download.endTime = time.Now()
 		err1 := udc.renterFile.UpdateAccessTime()
-		close(udc.download.completeChan)
-		err2 := udc.download.destination.Close()
-		udc.download.destination = nil
+		err2 := udc.download.markComplete()
 		return errors.Compose(err1, err2)
 	}
 	return nil

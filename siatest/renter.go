@@ -9,6 +9,7 @@ import (
 
 	"gitlab.com/NebulousLabs/Sia/crypto"
 	"gitlab.com/NebulousLabs/Sia/modules"
+	"gitlab.com/NebulousLabs/Sia/modules/renter/siafile"
 	"gitlab.com/NebulousLabs/Sia/node/api"
 	"gitlab.com/NebulousLabs/fastrand"
 
@@ -309,11 +310,16 @@ func (tn *TestNode) WaitForUploadProgress(rf *RemoteFile, progress float64) erro
 // WaitForUploadRedundancy waits for a file to reach a certain upload redundancy.
 func (tn *TestNode) WaitForUploadRedundancy(rf *RemoteFile, redundancy float64) error {
 	// Check if file is tracked by renter at all
-	if _, err := tn.FileInfo(rf); err != nil {
+	fi, err := tn.FileInfo(rf)
+	if err != nil {
 		return errors.New("file is not tracked by renter")
 	}
+	// A tiny file will always have 1x redundancy.
+	if fi.Filesize <= siafile.TinyFileSize {
+		redundancy = 1
+	}
 	// Wait until it reaches the redundancy
-	err := Retry(600, 100*time.Millisecond, func() error {
+	err = Retry(600, 100*time.Millisecond, func() error {
 		file, err := tn.FileInfo(rf)
 		if err != nil {
 			return errors.AddContext(err, "couldn't retrieve FileInfo")

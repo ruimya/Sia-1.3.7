@@ -103,6 +103,11 @@ func (uh *uploadHeap) managedPop() (uc *unfinishedUploadChunk) {
 // the HostPubKey instead of the FileContractID, and can be simplified even
 // further once the layout is per-chunk instead of per-filecontract.
 func (r *Renter) buildUnfinishedChunks(f *siafile.SiaFile, hosts map[string]struct{}) []*unfinishedUploadChunk {
+	// A tiny file doesn't need to be repaired.
+	if f.TinyFile() {
+		return nil
+	}
+
 	// If we don't have enough workers for the file, don't repair it right now.
 	minWorkers := 0
 	for i := uint64(0); i < f.NumChunks(); i++ {

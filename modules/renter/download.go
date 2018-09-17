@@ -190,6 +190,16 @@ type (
 	}
 )
 
+// markComplete marks a download as complete by closing the completeChan,
+// setting the endtime and closing the destination.
+func (d *download) markComplete() error {
+	d.endTime = time.Now()
+	close(d.completeChan)
+	err := d.destination.Close()
+	d.destination = nil
+	return err
+}
+
 // managedFail will mark the download as complete, but with the provided error.
 // If the download has already failed, the error will be updated to be a
 // concatenation of the previous error and the new error.
@@ -378,6 +388,18 @@ func (r *Renter) managedNewDownload(params downloadParams) (*download, error) {
 
 		log:           r.log,
 		memoryManager: r.memoryManager,
+	}
+
+	// If the file we want to download is a tiny file we are done.
+	if params.file.TinyFile() {
+		rawFile, err := params.file.LoadTinyFileContent()
+		if err != nil {
+			return nil, errors.AddContext(err, "failed to read tiny file contents")
+		}
+		_, err1 := d.destination.WriteAt(rawFile[d.staticOffset:d.staticOffset+d.staticLength], 0)
+		// Mark the download as completed.
+		err2 := d.markComplete()
+		return d, errors.Compose(err1, err2)
 	}
 
 	// Determine which chunks to download.
