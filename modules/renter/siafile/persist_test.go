@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -58,6 +59,46 @@ func newTestFile() *SiaFile {
 	}
 	// Create the file.
 	sf, err := New(siaFilePath, siaPath, source, newTestWAL(), []modules.ErasureCoder{rc}, sk, fileSize, fileMode)
+	if err != nil {
+		panic(err)
+	}
+	return sf
+}
+
+// newTinyTestFile is a helper method to create a 'tiny' SiaFile for testing.
+func newTinyTestFile() *SiaFile {
+	// Create arguments for new file.
+	sk := crypto.GenerateSiaKey(crypto.RandomCipherType())
+	siaPath := string(hex.EncodeToString(fastrand.Bytes(8)))
+	rc, err := NewRSCode(10, 20)
+	if err != nil {
+		panic(err)
+	}
+	fileSize := TinyFileSize / 2
+	fileMode := os.FileMode(777)
+	source := string(hex.EncodeToString(fastrand.Bytes(8)))
+
+	// Get temporary paths for the files.
+	tempDir := filepath.Join(os.TempDir(), "siafiles")
+	siaFilePath := filepath.Join(tempDir, siaPath)
+	sourceFilePath := filepath.Join(tempDir, source)
+
+	// Create the dir the files reside in.
+	if err := os.MkdirAll(tempDir, 0700); err != nil {
+		panic(err)
+	}
+
+	// Create the source file.
+	sourceFile, err := os.Create(sourceFilePath)
+	if err != nil {
+		panic(err)
+	}
+	defer sourceFile.Close()
+	if _, err := sourceFile.Write(fastrand.Bytes(int(fileSize))); err != nil {
+		panic(err)
+	}
+	// Create the file.
+	sf, err := New(siaFilePath, siaPath, sourceFilePath, newTestWAL(), []modules.ErasureCoder{rc}, sk, fileSize, fileMode)
 	if err != nil {
 		panic(err)
 	}
@@ -187,6 +228,93 @@ func TestNewFile(t *testing.T) {
 	if sf.siaFilePath != sf2.siaFilePath {
 		t.Errorf("sf2 filepath was %v but should be %v",
 			sf2.siaFilePath, sf.siaFilePath)
+	}
+	if sf.TinyFile() != sf2.TinyFile() {
+		t.Errorf("sf2 TinyFile returned %v but sf TinyFile retured %v",
+			sf2.TinyFile(), sf.TinyFile())
+	}
+}
+
+// TestNewTinyFile tests that a new 'tiny' file has the correct contents and size and that
+// loading it from disk also works.
+func TestNewTinyFile(t *testing.T) {
+	if testing.Short() {
+		t.SkipNow()
+	}
+	t.Parallel()
+	sf := newTinyTestFile()
+
+	// Marshal the metadata.
+	md, err := marshalMetadata(sf.staticMetadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Open the file.
+	f, err := os.OpenFile(sf.siaFilePath, os.O_RDWR, 777)
+	if err != nil {
+		t.Fatal("Failed to open file", err)
+	}
+	defer f.Close()
+	// Read the source file.
+	sourceData, err := ioutil.ReadFile(sf.LocalPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Check the filesize.
+	fi, err := f.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Size() != sf.staticMetadata.ChunkOffset+int64(len(sourceData)) {
+		t.Fatal("file doesn't have right size")
+	}
+	// Compare the metadata to the on-disk metadata.
+	readMD := make([]byte, len(md))
+	_, err = f.ReadAt(readMD, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(readMD, md) {
+		t.Fatal("metadata doesn't equal on-disk metadata")
+	}
+	// Compare the sourceData to the on-disk sourceData.
+	readSourceData := make([]byte, len(sourceData))
+	_, err = f.ReadAt(readSourceData, sf.staticMetadata.ChunkOffset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(readSourceData, sourceData) {
+		t.Fatal("readSourceData doesn't equal on-disk sourceData")
+	}
+	// Load the file from disk and check that they are the same.
+	sf2, err := LoadSiaFile(sf.siaFilePath, sf.wal)
+	if err != nil {
+		t.Fatal("failed to load SiaFile from disk", err)
+	}
+	// Compare the sf and sf2.
+	if !reflect.DeepEqual(sf.staticMetadata, sf2.staticMetadata) {
+		t.Error("sf metadata doesn't equal sf2 metadata")
+	}
+	if !reflect.DeepEqual(sf.pubKeyTable, sf2.pubKeyTable) {
+		t.Error("sf pubKeyTable doesn't equal sf2 pubKeyTable")
+	}
+	if !reflect.DeepEqual(sf.staticChunks, sf2.staticChunks) {
+		t.Error("sf chunks don't equal sf2 chunks")
+	}
+	if sf.siaFilePath != sf2.siaFilePath {
+		t.Errorf("sf2 filepath was %v but should be %v",
+			sf2.siaFilePath, sf.siaFilePath)
+	}
+	if sf.TinyFile() != sf2.TinyFile() {
+		t.Errorf("sf2 TinyFile returned %v but sf TinyFile retured %v",
+			sf2.TinyFile(), sf.TinyFile())
+	}
+	if sf.UploadedBytes() != sf.Size() {
+		t.Errorf("UploadedBytes should return %v but was %v",
+			sf.UploadedBytes(), sf.Size())
+	}
+	if sf.UploadProgress() != 100 {
+		t.Errorf("UploadProgress should be 1.0 but was %v", sf.UploadProgress())
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"io/ioutil"
 	"math"
 	"os"
 	"sync"
@@ -81,6 +82,28 @@ type (
 	}
 )
 
+// initTinyFile finalizes the initialization of a 'tiny' SiaFile by copying the
+// data into the SiaFile.
+func initTinyFile(sf *SiaFile) error {
+	// Set the tiny file flag.
+	sf.staticMetadata.StaticTinyFile = true
+	// Read the data.
+	data, err := ioutil.ReadFile(sf.staticMetadata.LocalPath)
+	if err != nil {
+		return err
+	}
+	// Create an update for the header.
+	headerUpdates, err := sf.saveHeader()
+	if err != nil {
+		return err
+	}
+	// Create an update for the content which is stored directly within the
+	// SiaFile.
+	contentUpdate := sf.createInsertUpdate(sf.staticMetadata.ChunkOffset, data)
+	// Apply the updates.
+	return sf.createAndApplyTransaction(append(headerUpdates, contentUpdate)...)
+}
+
 // New create a new SiaFile.
 func New(siaFilePath, siaPath, source string, wal *writeaheadlog.WAL, erasureCode []modules.ErasureCoder, masterKey crypto.CipherKey, fileSize uint64, fileMode os.FileMode) (*SiaFile, error) {
 	currentTime := time.Now()
@@ -103,7 +126,11 @@ func New(siaFilePath, siaPath, source string, wal *writeaheadlog.WAL, erasureCod
 		staticUID:   hex.EncodeToString(fastrand.Bytes(20)),
 		wal:         wal,
 	}
-	// Init chunks.
+	// If the file is a tiny file we initialize it accordingly.
+	if fileSize <= TinyFileSize {
+		return file, initTinyFile(file)
+	}
+	// Otherwise continue initializing a regular file.
 	file.staticChunks = make([]chunk, len(erasureCode))
 	for i := range file.staticChunks {
 		ecType, ecParams := marshalErasureCoder(erasureCode[i])
@@ -119,6 +146,9 @@ func New(siaFilePath, siaPath, source string, wal *writeaheadlog.WAL, erasureCod
 // AddPiece adds an uploaded piece to the file. It also updates the host table
 // if the public key of the host is not already known.
 func (sf *SiaFile) AddPiece(pk types.SiaPublicKey, chunkIndex, pieceIndex uint64, merkleRoot crypto.Hash) error {
+	if sf.staticMetadata.StaticTinyFile {
+		panic("AddPiece should never be called on a tiny file")
+	}
 	sf.mu.Lock()
 	defer sf.mu.Unlock()
 	// If the file was deleted we can't add a new piece since it would write
@@ -186,6 +216,9 @@ func (sf *SiaFile) AddPiece(pk types.SiaPublicKey, chunkIndex, pieceIndex uint64
 
 // Available indicates whether the file is ready to be downloaded.
 func (sf *SiaFile) Available(offline map[string]bool) bool {
+	if sf.TinyFile() {
+		return true
+	}
 	sf.mu.RLock()
 	defer sf.mu.RUnlock()
 	// We need to find at least erasureCode.MinPieces different pieces for each
@@ -240,6 +273,9 @@ func (sf *SiaFile) NumChunks() uint64 {
 // Pieces returns all the pieces for a chunk in a slice of slices that contains
 // all the pieces for a certain index.
 func (sf *SiaFile) Pieces(chunkIndex uint64) ([][]Piece, error) {
+	if sf.TinyFile() {
+		return nil, nil
+	}
 	sf.mu.RLock()
 	defer sf.mu.RUnlock()
 	if chunkIndex >= uint64(len(sf.staticChunks)) {
@@ -260,17 +296,13 @@ func (sf *SiaFile) Pieces(chunkIndex uint64) ([][]Piece, error) {
 // takes two arguments, a map of offline contracts for this file and a map that
 // indicates if a contract is goodForRenew.
 func (sf *SiaFile) Redundancy(offlineMap map[string]bool, goodForRenewMap map[string]bool) float64 {
+	// A tiny file always has redundancy 1x.
+	if sf.TinyFile() {
+		return 1.0
+	}
+
 	sf.mu.RLock()
 	defer sf.mu.RUnlock()
-	if sf.staticMetadata.StaticFileSize == 0 {
-		// TODO change this once tiny files are supported.
-		if len(sf.staticChunks) != 1 {
-			// should never happen
-			return -1
-		}
-		ec := sf.staticChunks[0].staticErasureCode
-		return float64(ec.NumPieces()) / float64(ec.MinPieces())
-	}
 
 	minRedundancy := math.MaxFloat64
 	minRedundancyNoRenew := math.MaxFloat64

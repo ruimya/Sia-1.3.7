@@ -19,6 +19,7 @@ type (
 		StaticVersion   [16]byte `json:"version"`   // version of the sia file format used
 		StaticFileSize  int64    `json:"filesize"`  // total size of the file
 		StaticPieceSize uint64   `json:"piecesize"` // size of a single piece of the file
+		StaticTinyFile  bool     `json:"tinyfile"`  // specifies if the file is considered 'tiny'
 		LocalPath       string   `json:"localpath"` // file to the local copy of the file used for repairing
 		SiaPath         string   `json:"siapath"`   // the path of the file on the Sia network
 
@@ -263,10 +264,19 @@ func (sf *SiaFile) UpdateAccessTime() error {
 	return sf.createAndApplyTransaction(updates...)
 }
 
+// TinyFile returns true if the file is considered 'tiny'.
+func (sf *SiaFile) TinyFile() bool {
+	return sf.staticMetadata.StaticTinyFile
+}
+
 // UploadedBytes indicates how many bytes of the file have been uploaded via
 // current file contracts. Note that this includes padding and redundancy, so
 // uploadedBytes can return a value much larger than the file's original filesize.
 func (sf *SiaFile) UploadedBytes() uint64 {
+	// Tiny files are always 100% uploaded.
+	if sf.TinyFile() {
+		return sf.Size()
+	}
 	sf.mu.RLock()
 	defer sf.mu.RUnlock()
 	var uploaded uint64
@@ -285,8 +295,8 @@ func (sf *SiaFile) UploadedBytes() uint64 {
 // been uploaded. Note that a file may be Available long before UploadProgress
 // reaches 100%, and UploadProgress may report a value greater than 100%.
 func (sf *SiaFile) UploadProgress() float64 {
-	// TODO change this once tiny files are supported.
-	if sf.Size() == 0 {
+	// Tiny files are always 100% uploaded.
+	if sf.TinyFile() {
 		return 100
 	}
 	uploaded := sf.UploadedBytes()

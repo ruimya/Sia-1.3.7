@@ -1,6 +1,7 @@
 package siafile
 
 import (
+	"gitlab.com/NebulousLabs/Sia/build"
 	"gitlab.com/NebulousLabs/writeaheadlog"
 )
 
@@ -22,6 +23,15 @@ const (
 )
 
 var (
+	// TinyFileSize is the maximum size a SiaFile can have while still being
+	// considered "tiny". This means that its file contents will be stored
+	// within the SiaFile itself instead of on the network.
+	TinyFileSize = build.Select(build.Var{
+		Dev:      uint64(1 << 8),  // 256 Bytes
+		Standard: uint64(1 << 12), // 4 KiB
+		Testing:  uint64(1 << 12), // 4 Bytes
+	}).(uint64)
+
 	// ecReedSolomon is the marshaled type of the reed solomon coder.
 	ecReedSolomon = [4]byte{0, 0, 0, 1}
 )

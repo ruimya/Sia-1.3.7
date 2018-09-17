@@ -96,7 +96,11 @@ func LoadSiaFile(path string, wal *writeaheadlog.WAL) (*SiaFile, error) {
 	if err != nil {
 		return nil, errors.AddContext(err, "failed to unmarshal pubKeyTable")
 	}
-	// Load the chunks.
+	// If the file is a tiny file we are done.
+	if sf.staticMetadata.StaticTinyFile {
+		return sf, nil
+	}
+	// Otherwise load the chunks.
 	_, err = f.Seek(sf.staticMetadata.ChunkOffset, io.SeekStart)
 	if err != nil {
 		return nil, errors.AddContext(err, "failed to seek to chunkOffset")
@@ -377,8 +381,14 @@ func (sf *SiaFile) saveFile() error {
 }
 
 // saveChunks creates a writeaheadlog update that saves the marshaled chunks of
-// the SiaFile to disk when applied.
+// the SiaFile to disk when applied. When the file is 'tiny', saveChunks
+// creates a no-op update.
 func (sf *SiaFile) saveChunks() (writeaheadlog.Update, error) {
+	// If the SiaFile is tiny we create a no-op update.
+	if sf.staticMetadata.StaticTinyFile {
+		return sf.createInsertUpdate(0, []byte{}), nil
+	}
+	// Otherwise we marshal the chunks and create an actual update.
 	chunks, err := marshalChunks(sf.staticChunks)
 	if err != nil {
 		return writeaheadlog.Update{}, errors.AddContext(err, "failed to marshal chunks")
