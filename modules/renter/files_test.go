@@ -30,15 +30,29 @@ func newTestingWal() *writeaheadlog.WAL {
 }
 
 // newFileTesting is a helper that calls newFile but returns no error.
-func newFileTesting(name string, wal *writeaheadlog.WAL, rsc modules.ErasureCoder, fileSize uint64, mode os.FileMode, source string) *siafile.SiaFile {
+func newFileTesting(name string, wal *writeaheadlog.WAL, rsc modules.ErasureCoder, fileSize uint64, mode os.FileMode) *siafile.SiaFile {
+	// Create a random source name.
+	source := string(hex.EncodeToString(fastrand.Bytes(8)))
 	// create the renter/files dir if it doesn't exist
-	siaFilePath := filepath.Join(os.TempDir(), "siafiles", name)
-	dir, _ := filepath.Split(siaFilePath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	tempDir := filepath.Join(os.TempDir(), "siafiles")
+	siaFilePath := filepath.Join(tempDir, name)
+	sourceFilePath := filepath.Join(tempDir, source)
+	if err := os.MkdirAll(tempDir, 0700); err != nil {
 		panic(err)
 	}
+
+	// Create the source file.
+	sourceFile, err := os.Create(sourceFilePath)
+	if err != nil {
+		panic(err)
+	}
+	defer sourceFile.Close()
+	if _, err := sourceFile.Write(fastrand.Bytes(int(fileSize))); err != nil {
+		panic(err)
+	}
+
 	// create the file
-	f, err := newFile(siaFilePath, name, wal, rsc, crypto.GenerateSiaKey(crypto.RandomCipherType()), fileSize, mode, source)
+	f, err := newFile(siaFilePath, name, wal, rsc, crypto.GenerateSiaKey(crypto.RandomCipherType()), fileSize, mode, sourceFilePath)
 	if err != nil {
 		panic(err)
 	}
@@ -78,7 +92,7 @@ func TestFileNumChunks(t *testing.T) {
 		// Create erasure-coder
 		rsc, _ := siafile.NewRSCode(test.dataPieces, 1) // can't use 0
 		// Create the file
-		f := newFileTesting(t.Name(), newTestingWal(), rsc, test.fileSize, 0777, "")
+		f := newFileTesting(t.Name(), newTestingWal(), rsc, test.fileSize, 0777)
 		// Make sure the file reports the correct pieceSize.
 		if f.PieceSize() != modules.SectorSize-f.MasterKey().Type().Overhead() {
 			t.Fatal("file has wrong pieceSize for its encryption type")
@@ -101,7 +115,7 @@ func TestFileNumChunks(t *testing.T) {
 // TestFileAvailable probes the available method of the file type.
 func TestFileAvailable(t *testing.T) {
 	rsc, _ := siafile.NewRSCode(1, 1) // can't use 0
-	f := newFileTesting(t.Name(), newTestingWal(), rsc, 100, 0777, "")
+	f := newFileTesting(t.Name(), newTestingWal(), rsc, 100, 0777)
 	neverOffline := make(map[string]bool)
 
 	if f.Available(neverOffline) {
@@ -128,7 +142,7 @@ func TestFileAvailable(t *testing.T) {
 func TestFileUploadedBytes(t *testing.T) {
 	// ensure that a piece fits within a sector
 	rsc, _ := siafile.NewRSCode(1, 3)
-	f := newFileTesting(t.Name(), newTestingWal(), rsc, 1000, 0777, "")
+	f := newFileTesting(t.Name(), newTestingWal(), rsc, 1000, 0777)
 	for i := uint64(0); i < 4; i++ {
 		err := f.AddPiece(types.SiaPublicKey{}, uint64(0), i, crypto.Hash{})
 		if err != nil {
@@ -144,7 +158,7 @@ func TestFileUploadedBytes(t *testing.T) {
 // 100%, even if more pieces have been uploaded,
 func TestFileUploadProgressPinning(t *testing.T) {
 	rsc, _ := siafile.NewRSCode(1, 1)
-	f := newFileTesting(t.Name(), newTestingWal(), rsc, 4, 0777, "")
+	f := newFileTesting(t.Name(), newTestingWal(), rsc, 4, 0777)
 	for i := uint64(0); i < 2; i++ {
 		err1 := f.AddPiece(types.SiaPublicKey{Key: []byte{byte(0)}}, uint64(0), i, crypto.Hash{})
 		err2 := f.AddPiece(types.SiaPublicKey{Key: []byte{byte(1)}}, uint64(0), i, crypto.Hash{})
@@ -170,7 +184,7 @@ func TestFileRedundancy(t *testing.T) {
 
 	for _, nData := range nDatas {
 		rsc, _ := siafile.NewRSCode(nData, 10)
-		f := newFileTesting(t.Name(), newTestingWal(), rsc, 1000, 0777, "")
+		f := newFileTesting(t.Name(), newTestingWal(), rsc, 1000, 0777)
 		// Test that an empty file has 0 redundancy.
 		if r := f.Redundancy(neverOffline, goodForRenew); r != 0 {
 			t.Error("expected 0 redundancy, got", r)
@@ -254,7 +268,7 @@ func TestFileExpiration(t *testing.T) {
 		t.SkipNow()
 	}
 	rsc, _ := siafile.NewRSCode(1, 2)
-	f := newFileTesting(t.Name(), newTestingWal(), rsc, 1000, 0777, "")
+	f := newFileTesting(t.Name(), newTestingWal(), rsc, 1000, 0777)
 	contracts := make(map[string]modules.RenterContract)
 	if f.Expiration(contracts) != 0 {
 		t.Error("file with no pieces should report as having no time remaining")
