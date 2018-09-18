@@ -235,6 +235,48 @@ func TestNewFile(t *testing.T) {
 	}
 }
 
+// TestNewFileBadErasureCoder checks that New fails if the number of supplied
+// ErasureCoders doesn't correspond to the supplied fileSize.
+func TestNewFileBadErasureCoder(t *testing.T) {
+	// Create arguments for new file.
+	sk := crypto.GenerateSiaKey(crypto.RandomCipherType())
+	pieceSize := modules.SectorSize - sk.Type().Overhead()
+	siaPath := string(hex.EncodeToString(fastrand.Bytes(8)))
+	fileSize := pieceSize * 10
+	fileMode := os.FileMode(777)
+	source := string(hex.EncodeToString(fastrand.Bytes(8)))
+
+	// Create the path to the file.
+	siaFilePath := filepath.Join(os.TempDir(), "siafiles", siaPath)
+	dir, _ := filepath.Split(siaFilePath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		panic(err)
+	}
+
+	// Create the file without ErasureCoder. This should fail.
+	_, err := New(siaFilePath, siaPath, source, newTestWAL(), []modules.ErasureCoder{}, sk, fileSize, fileMode)
+	if err == nil {
+		t.Fatal("Creating a file with an insufficient number of ErasureCoders should not be possible")
+	}
+
+	// Create an ErasureCoder.
+	rc, err := NewRSCode(10, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Creating the file with exactly 1 erasure coder should work.
+	_, err = New(siaFilePath, siaPath, source, newTestWAL(), []modules.ErasureCoder{rc}, sk, fileSize, fileMode)
+	if err != nil {
+		t.Fatal("Creating a file with the correct number of ErasureCoders should work", err)
+	}
+	// Create the file without ErasureCoder. This should fail.
+	_, err = New(siaFilePath, siaPath, source, newTestWAL(), []modules.ErasureCoder{rc, rc}, sk, fileSize, fileMode)
+	if err == nil {
+		t.Fatal("Creating a file with too many ErasureCoders should not be possible")
+	}
+}
+
 // TestNewTinyFile tests that a new 'tiny' file has the correct contents and size and that
 // loading it from disk also works.
 func TestNewTinyFile(t *testing.T) {

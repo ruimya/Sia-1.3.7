@@ -133,12 +133,30 @@ func New(siaFilePath, siaPath, source string, wal *writeaheadlog.WAL, erasureCod
 	}
 	// Otherwise continue initializing a regular file.
 	file.staticChunks = make([]chunk, len(erasureCode))
+
+	// While initializing the chunks we count the data that is covered by the
+	// chunk's ErasureCoder. That way we can sanity check if the file is
+	// created with a sufficient number of ErasureCoders.
+	coveredSize := uint64(0)
 	for i := range file.staticChunks {
+		if coveredSize >= fileSize {
+			return nil, errors.New("more ErasureCoder than necessary were supplied")
+		}
+		// Add the size of one piece times the number of data pieces to the
+		// coveredSize
+		coveredSize += (modules.SectorSize - masterKey.Type().Overhead()) * uint64(erasureCode[i].MinPieces())
+
+		// Init chunk.
 		ecType, ecParams := marshalErasureCoder(erasureCode[i])
 		file.staticChunks[i].staticErasureCode = erasureCode[i]
 		file.staticChunks[i].StaticErasureCodeType = ecType
 		file.staticChunks[i].StaticErasureCodeParams = ecParams
 		file.staticChunks[i].Pieces = make([][]Piece, erasureCode[i].NumPieces())
+	}
+	// Check if the coveredSize is sufficient.
+	if coveredSize < fileSize {
+		return nil, fmt.Errorf("the supplied erasureCodes only cover %v out of %v bytes of the file",
+			coveredSize, fileSize)
 	}
 	// Save file.
 	return file, file.saveFile()
