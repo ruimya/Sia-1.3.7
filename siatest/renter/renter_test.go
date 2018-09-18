@@ -846,7 +846,8 @@ func testUploadDownload(t *testing.T, tg *siatest.TestGroup) {
 		}
 	}
 	// Upload another file but this time make it a tiny file.
-	localFile, remoteFile, err = renter.UploadNewFileBlocking(int(siafile.TinyFileSize), dataPieces, parityPieces)
+	fileSize = int(siafile.TinyFileSize)
+	localFile, remoteFile, err = renter.UploadNewFileBlocking(fileSize, dataPieces, parityPieces)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2581,7 +2582,7 @@ func TestZeroByteFile(t *testing.T) {
 		t.Fatalf("Expected 1 file, got %v", len(rf.Files))
 	}
 	// Check redundancy and upload progress
-	if rf.Files[0].Redundancy != redundancy {
+	if rf.Files[0].Redundancy != 1 {
 		t.Fatalf("Expected redundancy to be %v, got %v", redundancy, rf.Files[0].Redundancy)
 	}
 	if rf.Files[0].UploadProgress != 100 {

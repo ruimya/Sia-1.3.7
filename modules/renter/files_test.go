@@ -158,7 +158,7 @@ func TestFileUploadedBytes(t *testing.T) {
 // 100%, even if more pieces have been uploaded,
 func TestFileUploadProgressPinning(t *testing.T) {
 	rsc, _ := siafile.NewRSCode(1, 1)
-	f := newFileTesting(t.Name(), newTestingWal(), rsc, 4, 0777)
+	f := newFileTesting(t.Name(), newTestingWal(), rsc, 10, 0777)
 	for i := uint64(0); i < 2; i++ {
 		err1 := f.AddPiece(types.SiaPublicKey{Key: []byte{byte(0)}}, uint64(0), i, crypto.Hash{})
 		err2 := f.AddPiece(types.SiaPublicKey{Key: []byte{byte(1)}}, uint64(0), i, crypto.Hash{})
