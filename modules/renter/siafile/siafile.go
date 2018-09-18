@@ -126,8 +126,9 @@ func New(siaFilePath, siaPath, source string, wal *writeaheadlog.WAL, erasureCod
 		staticUID:   hex.EncodeToString(fastrand.Bytes(20)),
 		wal:         wal,
 	}
-	// If the file is a tiny file we initialize it accordingly.
-	if fileSize <= TinyFileSize {
+	// If the file is a tiny file we initialize it accordingly if the source
+	// file is available on disk.
+	if _, err := os.Stat(source); err == nil && fileSize <= TinyFileSize {
 		return file, initTinyFile(file)
 	}
 	// Otherwise continue initializing a regular file.

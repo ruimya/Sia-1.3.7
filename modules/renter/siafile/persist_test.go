@@ -324,7 +324,6 @@ func TestNewTinyFile(t *testing.T) {
 	if !bytes.Equal(content, sourceData) {
 		t.Fatal("LoadTinyFileContent return value doesn't match sourceData")
 	}
-
 }
 
 // TestCreateReadInsertUpdate tests if an update can be created using createInsertUpdate
