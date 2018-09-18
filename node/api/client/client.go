@@ -105,9 +105,9 @@ func (c *Client) getRawResponse(resource string) (http.Header, <-chan ResponseBo
 		// no reason to read the response
 		return res.Header, nil, nil
 	}
-	channel := make(chan ResponseBody)
+	channel := make(chan ResponseBody, 1)
 	go func() {
-		defer drainAndClose(res.Body)
+		defer res.Body.Close()
 		d, err := ioutil.ReadAll(res.Body)
 		channel <- ResponseBody{
 			Data: d,
