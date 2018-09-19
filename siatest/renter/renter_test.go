@@ -803,86 +803,66 @@ func testStreamingCache(t *testing.T, tg *siatest.TestGroup) {
 // testUploadDownload is a subtest that uses an existing TestGroup to test if
 // uploading and downloading a file works
 func testUploadDownload(t *testing.T, tg *siatest.TestGroup) {
-	// Grab the first of the group's renters
-	renter := tg.Renters()[0]
-	// Upload file, creating a piece for each host in the group
-	dataPieces := uint64(1)
-	parityPieces := uint64(len(tg.Hosts())) - dataPieces
-	fileSize := 100 + siatest.Fuzz()
-	localFile, remoteFile, err := renter.UploadNewFileBlocking(fileSize, dataPieces, parityPieces)
-	if err != nil {
-		t.Fatal("Failed to upload a file for testing: ", err)
-	}
-	// Download the file synchronously directly into memory
-	_, err = renter.DownloadByStream(remoteFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Download the file synchronously to a file on disk
-	_, err = renter.DownloadToDisk(remoteFile, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Download the file asynchronously and wait for the download to finish.
-	localFile, err = renter.DownloadToDisk(remoteFile, true)
-	if err != nil {
-		t.Error(err)
-	}
-	if err := renter.WaitForDownload(localFile, remoteFile); err != nil {
-		t.Error(err)
-	}
-	// Stream the file.
-	_, err = renter.Stream(remoteFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Stream the file partially a few times. At least 1 byte is streamed.
-	for i := 0; i < 5; i++ {
-		from := fastrand.Intn(fileSize - 1)             // [0..fileSize-2]
-		to := from + 1 + fastrand.Intn(fileSize-from-1) // [from+1..fileSize-1]
-		_, err = renter.StreamPartial(remoteFile, localFile, uint64(from), uint64(to))
+	// Specify a test function to easily test every kind of download for a file
+	// of a certain size.
+	testFile := func(fileSize int) {
+		// Grab the first of the group's renters
+		renter := tg.Renters()[0]
+		// Upload the file.
+		dataPieces := uint64(1)
+		parityPieces := uint64(len(tg.Hosts())) - dataPieces
+		localFile, remoteFile, err := renter.UploadNewFileBlocking(fileSize, dataPieces, parityPieces)
+		if err != nil {
+			t.Fatal("Failed to upload a file for testing: ", err)
+		}
+
+		// Download the file synchronously directly into memory
+		_, err = renter.DownloadByStream(remoteFile)
 		if err != nil {
 			t.Fatal(err)
 		}
-	}
-	// Upload another file but this time make it a tiny file.
-	fileSize = int(siafile.TinyFileSize)
-	localFile, remoteFile, err = renter.UploadNewFileBlocking(fileSize, dataPieces, parityPieces)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Download the file synchronously directly into memory
-	_, err = renter.DownloadByStream(remoteFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Download the file synchronously to a file on disk
-	_, err = renter.DownloadToDisk(remoteFile, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Download the file asynchronously and wait for the download to finish.
-	localFile, err = renter.DownloadToDisk(remoteFile, true)
-	if err != nil {
-		t.Error(err)
-	}
-	if err := renter.WaitForDownload(localFile, remoteFile); err != nil {
-		t.Error(err)
-	}
-	// Stream the file.
-	_, err = renter.Stream(remoteFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Stream the file partially a few times. At least 1 byte is streamed.
-	for i := 0; i < 5; i++ {
-		from := fastrand.Intn(fileSize - 1)             // [0..fileSize-2]
-		to := from + 1 + fastrand.Intn(fileSize-from-1) // [from+1..fileSize-1]
-		_, err = renter.StreamPartial(remoteFile, localFile, uint64(from), uint64(to))
+		// Download the file synchronously to a file on disk
+		_, err = renter.DownloadToDisk(remoteFile, false)
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Download the file asynchronously and wait for the download to finish.
+		localFile, err = renter.DownloadToDisk(remoteFile, true)
+		if err != nil {
+			t.Error(err)
+		}
+		if err := renter.WaitForDownload(localFile, remoteFile); err != nil {
+			t.Error(err)
+		}
+		// Stream the file.
+		_, err = renter.Stream(remoteFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// If the file is a 0-byte file we are done.
+		if fileSize == 0 {
+			return
+		}
+		// Stream the file partially a few times. At least 1 byte is streamed.
+		for i := 0; i < 5; i++ {
+			from := fastrand.Intn(fileSize - 1)             // [0..fileSize-2]
+			to := from + 1 + fastrand.Intn(fileSize-from-1) // [from+1..fileSize-1]
+			_, err = renter.StreamPartial(remoteFile, localFile, uint64(from), uint64(to))
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
+
+	// Test a normal size file.
+	testFile(int(siafile.TinyFileSize + 1))
+	testFile(100 + siatest.Fuzz())
+	testFile(int(2*modules.SectorSize) + siatest.Fuzz())
+
+	// Test tiny files..
+	testFile(int(siafile.TinyFileSize))
+	testFile(int(siafile.TinyFileSize / 2))
+	testFile(0)
 }
 
 // TestRenterInterrupt executes a number of subtests using the same TestGroup to

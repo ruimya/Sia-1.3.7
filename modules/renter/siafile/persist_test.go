@@ -270,7 +270,7 @@ func TestNewFileBadErasureCoder(t *testing.T) {
 	if err != nil {
 		t.Fatal("Creating a file with the correct number of ErasureCoders should work", err)
 	}
-	// Create the file without ErasureCoder. This should fail.
+	// Create the file without erasure coders. This should fail.
 	_, err = New(siaFilePath, siaPath, source, newTestWAL(), []modules.ErasureCoder{rc, rc}, sk, fileSize, fileMode)
 	if err == nil {
 		t.Fatal("Creating a file with too many ErasureCoders should not be possible")

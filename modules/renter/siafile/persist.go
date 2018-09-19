@@ -384,7 +384,9 @@ func (sf *SiaFile) saveFile() error {
 
 // saveChunks creates a writeaheadlog update that saves the marshaled chunks of
 // the SiaFile to disk when applied. When the file is 'tiny', saveChunks
-// creates a no-op update.
+// creates a no-op update. That way we avoid corrupting the data of the tiny
+// file which resides at the chunkIndex which is usually used to store the
+// chunk metadata.
 func (sf *SiaFile) saveChunks() (writeaheadlog.Update, error) {
 	// If the SiaFile is tiny we create a no-op update.
 	if sf.staticMetadata.StaticTinyFile {
