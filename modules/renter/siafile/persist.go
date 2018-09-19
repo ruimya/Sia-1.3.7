@@ -371,15 +371,21 @@ func (sf *SiaFile) readChunks() ([]byte, error) {
 
 // saveFile saves the whole SiaFile atomically.
 func (sf *SiaFile) saveFile() error {
-	headerUpdates, err := sf.saveHeader()
+	// Save the header.
+	updates, err := sf.saveHeader()
 	if err != nil {
 		return err
 	}
-	chunksUpdate, err := sf.saveChunks()
-	if err != nil {
-		return err
+
+	// Save the chunks only if sf is not a tiny file.
+	if !sf.staticMetadata.StaticTinyFile {
+		chunksUpdate, err := sf.saveChunks()
+		if err != nil {
+			return err
+		}
+		updates = append(updates, chunksUpdate)
 	}
-	return sf.createAndApplyTransaction(append(headerUpdates, chunksUpdate)...)
+	return sf.createAndApplyTransaction(updates...)
 }
 
 // saveChunks creates a writeaheadlog update that saves the marshaled chunks of
@@ -388,10 +394,6 @@ func (sf *SiaFile) saveFile() error {
 // file which resides at the chunkIndex which is usually used to store the
 // chunk metadata.
 func (sf *SiaFile) saveChunks() (writeaheadlog.Update, error) {
-	// If the SiaFile is tiny we create a no-op update.
-	if sf.staticMetadata.StaticTinyFile {
-		return sf.createInsertUpdate(0, []byte{}), nil
-	}
 	// Otherwise we marshal the chunks and create an actual update.
 	chunks, err := marshalChunks(sf.staticChunks)
 	if err != nil {
