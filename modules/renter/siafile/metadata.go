@@ -217,7 +217,7 @@ func (sf *SiaFile) SetMode(mode os.FileMode) error {
 	sf.staticMetadata.ChangeTime = time.Now()
 
 	// Save changes to metadata to disk.
-	updates, err := sf.saveHeader()
+	updates, err := sf.saveMetadata()
 	if err != nil {
 		return err
 	}
@@ -232,7 +232,7 @@ func (sf *SiaFile) SetLocalPath(path string) error {
 	sf.staticMetadata.LocalPath = path
 
 	// Save changes to metadata to disk.
-	updates, err := sf.saveHeader()
+	updates, err := sf.saveMetadata()
 	if err != nil {
 		return err
 	}
@@ -258,7 +258,7 @@ func (sf *SiaFile) UpdateAccessTime() error {
 	sf.staticMetadata.AccessTime = time.Now()
 
 	// Save changes to metadata to disk.
-	updates, err := sf.saveHeader()
+	updates, err := sf.saveMetadata()
 	if err != nil {
 		return err
 	}
