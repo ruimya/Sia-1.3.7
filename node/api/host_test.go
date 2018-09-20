@@ -16,6 +16,7 @@ import (
 	"gitlab.com/NebulousLabs/Sia/crypto"
 	"gitlab.com/NebulousLabs/Sia/modules"
 	"gitlab.com/NebulousLabs/Sia/modules/host/contractmanager"
+	"gitlab.com/NebulousLabs/Sia/modules/renter/siafile"
 	"gitlab.com/NebulousLabs/Sia/types"
 )
 
@@ -965,7 +966,7 @@ func TestRemoveStorageFolderForced(t *testing.T) {
 
 	// Create a file for upload.
 	path := filepath.Join(st.dir, "test.dat")
-	if err := createRandFile(path, 512); err != nil {
+	if err := createRandFile(path, int(siafile.TinyFileSize)+1); err != nil {
 		t.Fatal(err)
 	}
 	// Upload to host.

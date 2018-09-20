@@ -93,7 +93,7 @@ func setupTestDownload(t *testing.T, size int, name string, waitOnAvailability b
 			var rf RenterFiles
 			st.getAPI("/renter/files", &rf)
 			if len(rf.Files) != 1 || !rf.Files[0].Available {
-				return fmt.Errorf("the uploading is not succeeding for some reason: %v\n", rf.Files[0])
+				return fmt.Errorf("the uploading is not succeeding for some reason: %v", rf.Files[0])
 			}
 			return nil
 		})
@@ -108,7 +108,7 @@ func setupTestDownload(t *testing.T, size int, name string, waitOnAvailability b
 // runDownloadTest uploads a file and downloads it using the specified
 // parameters, verifying that the parameters are applied correctly and the file
 // is downloaded successfully.
-func runDownloadTest(t *testing.T, filesize, offset, length int64, useHttpResp bool, testName string) error {
+func runDownloadTest(t *testing.T, filesize, offset, length int64, useHTTPResp bool, testName string) error {
 	ulSiaPath := testName + ".dat"
 	st, path := setupTestDownload(t, int(filesize), ulSiaPath, true)
 	defer func() {
@@ -140,7 +140,7 @@ func runDownloadTest(t *testing.T, filesize, offset, length int64, useHttpResp b
 
 	var downbytes bytes.Buffer
 
-	if useHttpResp {
+	if useHTTPResp {
 		dlURL += "&httpresp=true"
 		// Make request.
 		resp, err := HttpGET("http://" + st.server.listener.Addr().String() + dlURL)
@@ -248,7 +248,7 @@ func TestValidDownloads(t *testing.T) {
 		filesize,
 		offset,
 		length int64
-		useHttpResp bool
+		useHTTPResp bool
 		testName    string
 	}{
 		// file-backed tests.
@@ -277,7 +277,7 @@ func TestValidDownloads(t *testing.T) {
 	for _, params := range testParams {
 		t.Run(params.testName, func(st *testing.T) {
 			st.Parallel()
-			err := runDownloadTest(st, params.filesize, params.offset, params.length, params.useHttpResp, params.testName)
+			err := runDownloadTest(st, params.filesize, params.offset, params.length, params.useHTTPResp, params.testName)
 			if err != nil {
 				st.Fatal(err)
 			}
@@ -877,7 +877,7 @@ func TestRenterHandlerRename(t *testing.T) {
 
 	// Create a file.
 	path1 := filepath.Join(st.dir, "test1.dat")
-	if err = createRandFile(path1, 512); err != nil {
+	if err = createRandFile(path1, int(modules.SectorSize)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -917,7 +917,7 @@ func TestRenterHandlerRename(t *testing.T) {
 
 	// Create and upload another file.
 	path2 := filepath.Join(st.dir, "test2.dat")
-	if err = createRandFile(path2, 512); err != nil {
+	if err = createRandFile(path2, int(modules.SectorSize)); err != nil {
 		t.Fatal(err)
 	}
 	uploadValues.Set("source", path2)

@@ -269,7 +269,7 @@ func (sf *SiaFile) ChunkIndexByOffset(offset uint64) (chunkIndex uint64, off uin
 	if sf.TinyFile() {
 		panic("ChunkIndexByOffset should never be called on a tiny file")
 	}
-	for chunkIndex := uint64(0); chunkIndex < uint64(len(sf.staticChunks)); chunkIndex++ {
+	for chunkIndex = uint64(0); chunkIndex < uint64(len(sf.staticChunks)); chunkIndex++ {
 		if sf.staticChunkSize(chunkIndex) > offset {
 			return chunkIndex, offset
 		}

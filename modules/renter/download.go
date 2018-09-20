@@ -405,9 +405,7 @@ func (r *Renter) managedNewDownload(params downloadParams) (*download, error) {
 	// Determine which chunks to download.
 	minChunk, minChunkOffset := params.file.ChunkIndexByOffset(params.offset)
 	maxChunk, maxChunkOffset := params.file.ChunkIndexByOffset(params.offset + params.length)
-	if minChunk == params.file.NumChunks() || maxChunk == params.file.NumChunks() {
-		return nil, errors.New("download is requesting a chunk that is past the boundary of the file")
-	}
+
 	// If the maxChunkOffset is exactly 0 we need to subtract 1 chunk. e.g. if
 	// the chunkSize is 100 bytes and we want to download 100 bytes from offset
 	// 0, maxChunk would be 1 and maxChunkOffset would be 0. We want maxChunk
@@ -415,9 +413,10 @@ func (r *Renter) managedNewDownload(params downloadParams) (*download, error) {
 	if maxChunk > 0 && maxChunkOffset == 0 {
 		maxChunk--
 	}
-	// Protect maxChunk underflow on tiny files
-	if params.file.Size() < 4096 {
-		maxChunk = 0
+
+	// Check if the chunks are within bounds.
+	if minChunk == params.file.NumChunks() || maxChunk == params.file.NumChunks() {
+		return nil, errors.New("download is requesting a chunk that is past the boundary of the file")
 	}
 
 	// For each chunk, assemble a mapping from the contract id to the index of
