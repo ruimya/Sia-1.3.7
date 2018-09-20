@@ -24,6 +24,13 @@ const (
 	// RenterDir is the name of the directory that is used to store the
 	// renter's persistent data.
 	RenterDir = "renter"
+
+	// EstimatedFileContractTransactionSetSize is the estimated blockchain size
+	// of a transaction set between a renter and a host that contains a file
+	// contract. This transaction set will contain a setup transaction from each
+	// the host and the renter, and will also contain a file contract and file
+	// contract revision that have each been signed by all parties.
+	EstimatedFileContractTransactionSetSize = 2048
 )
 
 // An ErasureCoder is an error-correcting encoder and decoder.
@@ -105,6 +112,8 @@ type FileInfo struct {
 	UploadedBytes  uint64            `json:"uploadedbytes"`
 	UploadProgress float64           `json:"uploadprogress"`
 	Expiration     types.BlockHeight `json:"expiration"`
+	OnDisk         bool              `json:"ondisk"`
+	Recoverable    bool              `json:"recoverable"`
 }
 
 // A HostDBEntry represents one host entry in the Renter's host DB. It
@@ -322,6 +331,9 @@ type Renter interface {
 	// Close closes the Renter.
 	Close() error
 
+	// CancelContract cancels a specific contract of the renter.
+	CancelContract(id types.FileContractID) error
+
 	// Contracts returns the staticContracts of the renter's hostContractor.
 	Contracts() []RenterContract
 
@@ -398,6 +410,10 @@ type Renter interface {
 
 	// SetSettings sets the Renter's settings.
 	SetSettings(RenterSettings) error
+
+	// SetFileTrackingPath sets the on-disk location of an uploaded file to a
+	// new value. Useful if files need to be moved on disk.
+	SetFileTrackingPath(siaPath, newPath string) error
 
 	// ShareFiles creates a '.sia' file that can be shared with others.
 	ShareFiles(paths []string, shareDest string) error
