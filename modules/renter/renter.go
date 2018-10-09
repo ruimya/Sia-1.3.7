@@ -88,6 +88,10 @@ type hostDB interface {
 	// EstimateHostScore returns the estimated score breakdown of a host with the
 	// provided settings.
 	EstimateHostScore(modules.HostDBEntry, modules.Allowance) modules.HostScoreBreakdown
+
+	// UpdateContractHosts updates the hostdb with the current hosts that have
+	// active contracts with the renter.
+	UpdateContractHosts([]types.SiaPublicKey)
 }
 
 // A hostContractor negotiates, revises, renews, and provides access to file

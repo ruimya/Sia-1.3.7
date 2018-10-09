@@ -156,6 +156,17 @@ func (c *Contractor) SetRateLimits(readBPS int64, writeBPS int64, packetSize uin
 	c.staticContracts.SetRateLimits(readBPS, writeBPS, packetSize)
 }
 
+// updateContractHosts updates the hostdb with which hosts have active contracts
+// with the renter
+func (c *Contractor) updateContractHosts() {
+	contracts := c.Contracts()
+	var hosts []types.SiaPublicKey
+	for _, c := range contracts {
+		hosts = append(hosts, c.HostPublicKey)
+	}
+	c.hdb.UpdateContractHosts(hosts)
+}
+
 // Close closes the Contractor.
 func (c *Contractor) Close() error {
 	return c.tg.Stop()

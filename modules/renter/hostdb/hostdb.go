@@ -54,6 +54,10 @@ type HostDB struct {
 	// random.
 	hostTree *hosttree.HostTree
 
+	// contractHosts are the hosts that currently have active contracts with the
+	// renter.
+	contractHosts []modules.HostDBEntry
+
 	// the scanPool is a set of hosts that need to be scanned. There are a
 	// handful of goroutines constantly waiting on the channel for hosts to
 	// scan. The scan map is used to prevent duplicates from entering the scan
@@ -366,4 +370,23 @@ func (hdb *HostDB) SetAllowance(allowance modules.Allowance) error {
 
 	// Update the trees weight function.
 	return hdb.hostTree.SetWeightFunction(hdb.calculateHostWeightFn(allowance))
+}
+
+// UpdateContractHosts updates the hostdb with the current hosts that have
+// active contracts with the renter.
+func (hdb *HostDB) UpdateContractHosts(pubkeys []types.SiaPublicKey) {
+	// Reset the hostdb contract hosts
+	hdb.mu.Lock()
+	hdb.contractHosts = []modules.HostDBEntry{}
+	hdb.mu.Unlock()
+
+	// Update hostdb contract hosts
+	for _, pk := range pubkeys {
+		host, exist := hdb.Host(pk)
+		if exist {
+			hdb.mu.Lock()
+			hdb.contractHosts = append(hdb.contractHosts, host)
+			hdb.mu.Unlock()
+		}
+	}
 }

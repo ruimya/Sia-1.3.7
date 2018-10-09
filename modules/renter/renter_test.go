@@ -121,6 +121,7 @@ func (stubHostDB) Host(types.SiaPublicKey) (modules.HostDBEntry, bool) {
 func (stubHostDB) ScoreBreakdown(modules.HostDBEntry) modules.HostScoreBreakdown {
 	return modules.HostScoreBreakdown{}
 }
+func (stubHostDB) UpdateContractHosts(pubkeys []types.SiaPublicKey) {}
 
 // stubContractor is the minimal implementation of the hostContractor
 // interface.

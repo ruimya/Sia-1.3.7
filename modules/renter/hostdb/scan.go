@@ -515,20 +515,35 @@ func (hdb *HostDB) threadedScan() {
 
 		// Grab a set of hosts to scan, grab hosts that are active, inactive,
 		// and offline to get high diversity.
-		var onlineHosts, offlineHosts []modules.HostDBEntry
+		onlineHosts := make(map[string]modules.HostDBEntry)
+		offlineHosts := make(map[string]modules.HostDBEntry)
+
+		// Get all hosts from the hosttree and append to list of hosts that
+		// currently have contracts. This will ensure that the hosts with
+		// contracts are scanned first
 		allHosts := hdb.hostTree.All()
-		for i := len(allHosts) - 1; i >= 0; i-- {
+		hdb.mu.RLock()
+		hosts := append(hdb.contractHosts, allHosts...)
+		hdb.mu.RUnlock()
+		for i := len(hosts) - 1; i >= 0; i-- {
 			if len(onlineHosts) >= hostCheckupQuantity && len(offlineHosts) >= hostCheckupQuantity {
 				break
 			}
 
+			// check if host was already checked
+			host := hosts[i]
+			_, ok1 := onlineHosts[host.PublicKey.String()]
+			_, ok2 := offlineHosts[host.PublicKey.String()]
+			if ok1 || ok2 {
+				continue
+			}
+
 			// Figure out if the host is online or offline.
-			host := allHosts[i]
 			online := len(host.ScanHistory) > 0 && host.ScanHistory[len(host.ScanHistory)-1].Success
 			if online && len(onlineHosts) < hostCheckupQuantity {
-				onlineHosts = append(onlineHosts, host)
+				onlineHosts[host.PublicKey.String()] = host
 			} else if !online && len(offlineHosts) < hostCheckupQuantity {
-				offlineHosts = append(offlineHosts, host)
+				offlineHosts[host.PublicKey.String()] = host
 			}
 		}
 

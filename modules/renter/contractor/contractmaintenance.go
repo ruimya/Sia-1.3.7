@@ -917,6 +917,7 @@ func (c *Contractor) threadedContractMaintenance() {
 		default:
 		}
 	}
+	c.updateContractHosts()
 }
 
 // managedUpdateContractUtility is a helper function that acquires a contract, updates
