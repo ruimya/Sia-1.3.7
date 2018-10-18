@@ -23,8 +23,8 @@ Index
 | ------------------------------------------------------------------------------- | --------- |
 | [/renter](#renter-get)                                                          | GET       |
 | [/renter](#renter-post)                                                         | POST      |
-| [/renter/contract/cancel](#rentercontractcancel-post)                           | POST      |
 | [/renter/contracts](#rentercontracts-get)                                       | GET       |
+| [/renter/contracts/cancel](#rentercontractscancel-post)                         | POST      |
 | [/renter/downloads](#renterdownloads-get)                                       | GET       |
 | [/renter/downloads/clear](#renterdownloadsclear-post)                           | POST      |
 | [/renter/files](#renterfiles-get)                                               | GET       |
@@ -154,20 +154,6 @@ streamcachesize
 standard success or error response. See
 [API.md#standard-responses](/doc/API.md#standard-responses).
 
-#### /renter/contract/cancel [POST]
-
-cancels a specific contract of the Renter.
-
-###### Query String Parameter
-```
-// ID of the file contract
-id
-```
-
-###### Response
-standard success or error response. See
-[API.md#standard-responses](/doc/API.md#standard-responses).
-
 #### /renter/contracts [GET]
 
 returns the renter's contracts.  Active contracts are contracts that the Renter
@@ -252,6 +238,20 @@ expired    // true or false - Optional
   "expiredcontracts": [],
 }
 ```
+
+#### /renter/contracts/cancel [POST]
+
+cancels a specific contract of contracts of the Renter.
+
+###### Query String Parameter
+```
+// List of comma separated IDs of the file contracts
+ids
+```
+
+###### Response
+standard success or error response. See
+[API.md#standard-responses](/doc/API.md#standard-responses).
 
 #### /renter/downloads [GET]
 

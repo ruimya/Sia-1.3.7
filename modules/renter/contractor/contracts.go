@@ -31,6 +31,13 @@ func (c *Contractor) managedContractUtility(id types.FileContractID) (modules.Co
 	return rc.Utility, true
 }
 
+// managedUnlockContract unlocks a contract by setting its utility Locked field to false.
+func (c *Contractor) managedUnlockContract(cid types.FileContractID) error {
+	return c.managedUpdateContractUtility(cid, modules.ContractUtility{
+		Locked: false,
+	})
+}
+
 // ContractByPublicKey returns the contract with the key specified, if it
 // exists. The contract will be resolved if possible to the most recent child
 // contract.
@@ -44,11 +51,16 @@ func (c *Contractor) ContractByPublicKey(pk types.SiaPublicKey) (modules.RenterC
 	return c.staticContracts.View(id)
 }
 
-// CancelContract cancels the Contractor's contract by marking it !GoodForRenew
+// CancelContracts cancels the Contractor's contract by marking it !GoodForRenew
 // and !GoodForUpload
-func (c *Contractor) CancelContract(id types.FileContractID) error {
-	defer c.threadedContractMaintenance()
-	return c.managedCancelContract(id)
+func (c *Contractor) CancelContracts(ids []types.FileContractID) error {
+	for _, id := range ids {
+		if err := c.managedCancelContract(id); err != nil {
+			return err
+		}
+	}
+	go c.threadedContractMaintenance()
+	return nil
 }
 
 // Contracts returns the contracts formed by the contractor in the current
@@ -90,4 +102,15 @@ func (c *Contractor) ResolveIDToPubKey(id types.FileContractID) types.SiaPublicK
 		panic("renewed should never miss an id")
 	}
 	return pk
+}
+
+// UnlockContracts unlocks the contracts from the provided FileContractIDs.
+// Errors are logged and not returned
+func (c *Contractor) UnlockContracts(ids []types.FileContractID) {
+	for _, id := range ids {
+		if err := c.managedUnlockContract(id); err != nil {
+			c.log.Println("WARN: failed to unlock contract:", id)
+		}
+	}
+	go c.threadedContractMaintenance()
 }

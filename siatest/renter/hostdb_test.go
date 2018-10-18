@@ -13,6 +13,7 @@ import (
 	"gitlab.com/NebulousLabs/Sia/node"
 	"gitlab.com/NebulousLabs/Sia/node/api/client"
 	"gitlab.com/NebulousLabs/Sia/siatest"
+	"gitlab.com/NebulousLabs/Sia/types"
 	"gitlab.com/NebulousLabs/errors"
 )
 
@@ -360,7 +361,7 @@ func TestSelectRandomCanceledHost(t *testing.T) {
 	}
 
 	// Cancel the active contract.
-	err = renter.RenterContractCancelPost(contracts.ActiveContracts[0].ID)
+	err = renter.RenterContractsCancelPost([]types.FileContractID{contracts.ActiveContracts[0].ID})
 	if err != nil {
 		t.Fatal("Failed to cancel contract", err)
 	}

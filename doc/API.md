@@ -867,14 +867,14 @@ Renter
 | --------------------------------------------------------------------------| --------- |
 | [/renter](#renter-get)                                                    | GET       |
 | [/renter](#renter-post)                                                   | POST      |
-| [/renter/contract/cancel](#rentercontractcancel-post)                     | POST      |
 | [/renter/contracts](#rentercontracts-get)                                 | GET       |
+| [/renter/contracts/cancel](#rentercontractscancel-post)                   | POST      |
 | [/renter/downloads](#renterdownloads-get)                                 | GET       |
 | [/renter/downloads/clear](#renterdownloadsclear-post)                     | POST      |
 | [/renter/prices](#renterprices-get)                                       | GET       |
 | [/renter/files](#renterfiles-get)                                         | GET       |
 | [/renter/file/*___siapath___](#renterfile___siapath___-get)               | GET       |
-| [/renter/file/*___siapath___](#renterfile___siapath___-post)              | POST       |
+| [/renter/file/*___siapath___](#renterfile___siapath___-post)              | POST      |
 | [/renter/delete/*___siapath___](#renterdeletesiapath-post)                | POST      |
 | [/renter/download/*___siapath___](#renterdownloadsiapath-get)             | GET       |
 | [/renter/downloadasync/*___siapath___](#renterdownloadasyncsiapath-get)   | GET       |
@@ -935,20 +935,6 @@ streamcachesize     // number of data chunks cached when streaming
 standard success or error response. See
 [#standard-responses](#standard-responses).
 
-#### /renter/contract/cancel [POST]
-
-cancels a specific contract of the Renter.
-
-###### Query String Parameters [(with comments)](/doc/api/Renter.md#query-string-parameter)
-```
-// ID of the file contract
-id
-```
-
-###### Response
-standard success or error response. See
-[API.md#standard-responses](/doc/API.md#standard-responses).
-
 #### /renter/contracts [GET]
 
 returns the renter's contracts.  Active contracts are contracts that the Renter
@@ -995,6 +981,20 @@ expired    // true or false - Optional
   "expiredcontracts": [],
 }
 ```
+
+#### /renter/contracts/cancel [POST]
+
+cancels a specific contract of contracts of the Renter.
+
+###### Query String Parameters [(with comments)](/doc/api/Renter.md#query-string-parameter)
+```
+// List of comma separated IDs of the file contracts
+ids
+```
+
+###### Response
+standard success or error response. See
+[API.md#standard-responses](/doc/API.md#standard-responses).
 
 #### /renter/downloads [GET]
 

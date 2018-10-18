@@ -1,6 +1,7 @@
 package client
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -30,12 +31,14 @@ func trimSiaPath(siaPath string) string {
 	return strings.TrimPrefix(siaPath, "/")
 }
 
-// RenterContractCancelPost uses the /renter/contract/cancel endpoint to cancel
-// a contract
-func (c *Client) RenterContractCancelPost(id types.FileContractID) error {
-	values := url.Values{}
-	values.Set("id", id.String())
-	err := c.post("/renter/contract/cancel", values.Encode(), nil)
+// RenterContractsCancelPost uses the /renter/contracts/cancel endpoint to cancel
+// contracts
+func (c *Client) RenterContractsCancelPost(ids []types.FileContractID) error {
+	data, err := json.Marshal(ids)
+	if err != nil {
+		return err
+	}
+	err = c.post("/renter/contracts/cancel", string(data), nil)
 	return err
 }
 
@@ -221,7 +224,7 @@ func (c *Client) RenterSetStreamCacheSizePost(cacheSize uint64) (err error) {
 	return
 }
 
-// RenterSetIPViolationCheck uses the /renter endpoint to enable/disable the IP
+// RenterSetCheckIPViolationPost uses the /renter endpoint to enable/disable the IP
 // violation check in the renter.
 func (c *Client) RenterSetCheckIPViolationPost(enabled bool) (err error) {
 	values := url.Values{}

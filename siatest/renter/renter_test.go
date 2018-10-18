@@ -1808,7 +1808,8 @@ func TestRenterContracts(t *testing.T) {
 	}
 	contract := rc.ActiveContracts[0]
 	// Cancel Contract
-	if err := r.RenterContractCancelPost(contract.ID); err != nil {
+	ids := []types.FileContractID{contract.ID}
+	if err := r.RenterContractsCancelPost(ids); err != nil {
 		t.Fatal(err)
 	}
 
