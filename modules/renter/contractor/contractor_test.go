@@ -713,10 +713,14 @@ func TestCancelUnlockContract(t *testing.T) {
 		return nil
 	})
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	// Unlock contract
-	c.UnlockContracts([]types.FileContractID{contract.ID})
+	err = c.UnlockContracts([]types.FileContractID{contract.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	loop = 0
 	err = build.Retry(50, 100*time.Millisecond, func() error {
 		loop++
@@ -742,7 +746,7 @@ func TestCancelUnlockContract(t *testing.T) {
 		return nil
 	})
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 }
 

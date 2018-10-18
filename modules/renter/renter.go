@@ -113,7 +113,7 @@ type hostContractor interface {
 	// Close closes the hostContractor.
 	Close() error
 
-	// CancelContracts cancels the Renter's contract
+	// CancelContracts cancels the Renter's contracts
 	CancelContracts(ids []types.FileContractID) error
 
 	// Contracts returns the staticContracts of the renter's hostContractor.
@@ -159,8 +159,8 @@ type hostContractor interface {
 	// contractor and its submodules.
 	SetRateLimits(int64, int64, uint64)
 
-	// UnlockContracts unlocks the renter's contract
-	UnlockContracts(ids []types.FileContractID)
+	// UnlockContracts unlocks the renter's contracts
+	UnlockContracts(ids []types.FileContractID) error
 }
 
 // A trackedFile contains metadata about files being tracked by the Renter.
@@ -553,8 +553,13 @@ func (r *Renter) EstimateHostScore(e modules.HostDBEntry, a modules.Allowance) m
 	return r.hostDB.EstimateHostScore(e, a)
 }
 
-// CancelContracts cancels a renter's contract by ID by setting goodForRenew and goodForUpload to false
+// CancelContracts cancels a renter's contracts by ID by setting goodForRenew
+// and goodForUpload to false
 func (r *Renter) CancelContracts(ids []types.FileContractID) error {
+	if err := r.tg.Add(); err != nil {
+		return err
+	}
+	defer r.tg.Done()
 	return r.hostContractor.CancelContracts(ids)
 }
 
@@ -612,7 +617,9 @@ func (r *Renter) unlockContracts() {
 		}
 		ids = append(ids, c.ID)
 	}
-	r.hostContractor.UnlockContracts(ids)
+	if err := r.hostContractor.UnlockContracts(ids); err != nil {
+		r.log.Println("WARN: unable to cancel contracts:", err)
+	}
 }
 
 // validateSiapath checks that a Siapath is a legal filename.

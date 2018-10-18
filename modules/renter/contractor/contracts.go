@@ -1,8 +1,11 @@
 package contractor
 
 import (
+	"fmt"
+
 	"gitlab.com/NebulousLabs/Sia/modules"
 	"gitlab.com/NebulousLabs/Sia/types"
+	"gitlab.com/NebulousLabs/errors"
 )
 
 // contractEndHeight returns the height at which the Contractor's contracts
@@ -33,8 +36,14 @@ func (c *Contractor) managedContractUtility(id types.FileContractID) (modules.Co
 
 // managedUnlockContract unlocks a contract by setting its utility Locked field to false.
 func (c *Contractor) managedUnlockContract(cid types.FileContractID) error {
+	u, exists := c.managedContractUtility(cid)
+	if !exists {
+		return fmt.Errorf("Contract not found: %v", cid)
+	}
 	return c.managedUpdateContractUtility(cid, modules.ContractUtility{
-		Locked: false,
+		GoodForRenew:  u.GoodForRenew,
+		GoodForUpload: u.GoodForUpload,
+		Locked:        false,
 	})
 }
 
@@ -51,9 +60,13 @@ func (c *Contractor) ContractByPublicKey(pk types.SiaPublicKey) (modules.RenterC
 	return c.staticContracts.View(id)
 }
 
-// CancelContracts cancels the Contractor's contract by marking it !GoodForRenew
-// and !GoodForUpload
+// CancelContracts cancels the Contractor's contracts by marking it
+// !GoodForRenew and !GoodForUpload
 func (c *Contractor) CancelContracts(ids []types.FileContractID) error {
+	if err := c.tg.Add(); err != nil {
+		return err
+	}
+	defer c.tg.Done()
 	for _, id := range ids {
 		if err := c.managedCancelContract(id); err != nil {
 			return err
@@ -106,11 +119,17 @@ func (c *Contractor) ResolveIDToPubKey(id types.FileContractID) types.SiaPublicK
 
 // UnlockContracts unlocks the contracts from the provided FileContractIDs.
 // Errors are logged and not returned
-func (c *Contractor) UnlockContracts(ids []types.FileContractID) {
+func (c *Contractor) UnlockContracts(ids []types.FileContractID) error {
+	if err := c.tg.Add(); err != nil {
+		return err
+	}
+	defer c.tg.Done()
+	var err error
 	for _, id := range ids {
 		if err := c.managedUnlockContract(id); err != nil {
-			c.log.Println("WARN: failed to unlock contract:", id)
+			err = errors.Compose(err, fmt.Errorf("WARN: failed to unlock contract: %v", id))
 		}
 	}
 	go c.threadedContractMaintenance()
+	return err
 }

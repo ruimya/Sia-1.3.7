@@ -294,9 +294,13 @@ func (api *API) renterHandlerPOST(w http.ResponseWriter, req *http.Request, _ ht
 func (api *API) renterContractsCancelHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
 	// Parse contract IDs
 	var ids []types.FileContractID
+	var fcid types.FileContractID
 	if err := json.NewDecoder(req.Body).Decode(&ids); err != nil {
-		WriteError(w, Error{"unable to parse id:" + err.Error()}, http.StatusBadRequest)
-		return
+		if errOld := fcid.LoadString(req.FormValue("id")); errOld != nil {
+			WriteError(w, Error{"unable to parse id:" + err.Error()}, http.StatusBadRequest)
+			return
+		}
+		ids = append(ids, fcid)
 	}
 	// Cancel Contracts
 	if err := api.renter.CancelContracts(ids); err != nil {
