@@ -640,6 +640,112 @@ func TestLinkedContracts(t *testing.T) {
 	}
 }
 
+// TestCancelUnlockContract tests that the contractor can lock and then unlock
+// contracts
+func TestCancelUnlockContract(t *testing.T) {
+	if testing.Short() {
+		t.SkipNow()
+	}
+	t.Parallel()
+
+	// create testing trio
+	_, c, m, err := newTestingTrio(t.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create allowance
+	a := modules.Allowance{
+		Funds:       types.SiacoinPrecision.Mul64(100),
+		Hosts:       1,
+		Period:      20,
+		RenewWindow: 10,
+	}
+	err = c.SetAllowance(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for Contract creation
+	err = build.Retry(200, 100*time.Millisecond, func() error {
+		if len(c.Contracts()) != 1 {
+			return errors.New("no contract created")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Error(err)
+	}
+
+	contract := c.Contracts()[0]
+	// Cancel contract
+	err = c.CancelContracts([]types.FileContractID{contract.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	loop := 0
+	err = build.Retry(50, 100*time.Millisecond, func() error {
+		loop++
+		if loop%10 == 0 {
+			_, err = m.AddBlock()
+			if err != nil {
+				return err
+			}
+		}
+		// Confirm contract is not moved to OldContracts
+		if len(c.Contracts()) != 1 {
+			return fmt.Errorf("there should still be 1 contract but got %v", len(c.Contracts()))
+		}
+		if len(c.OldContracts()) != 0 {
+			return fmt.Errorf("there should still be 0 Old contract but got %v", len(c.OldContracts()))
+		}
+		// Grab Contract and confirm that the utility was updated
+		contract = c.Contracts()[0]
+		if contract.Utility.GoodForRenew {
+			return errors.New("contract should be !GoodForRenew")
+		}
+		if contract.Utility.GoodForUpload {
+			return errors.New("contract should be !GoodForUpload")
+		}
+		if !contract.Utility.Locked {
+			return errors.New("contract should be Locked")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Error(err)
+	}
+	// Unlock contract
+	c.UnlockContracts([]types.FileContractID{contract.ID})
+	loop = 0
+	err = build.Retry(50, 100*time.Millisecond, func() error {
+		loop++
+		if loop%10 == 0 {
+			_, err = m.AddBlock()
+			if err != nil {
+				return err
+			}
+		}
+		// Confirm the contract is still in staticContracts
+		if len(c.Contracts()) != 1 {
+			return fmt.Errorf("there should still be 1 contract but got %v", len(c.Contracts()))
+		}
+		if len(c.OldContracts()) != 0 {
+			return fmt.Errorf("there should still be 0 Old contract but got %v", len(c.OldContracts()))
+		}
+		// Grab Contract and confirm it is unlocked. There is no guarantee that
+		// it will be GoodForRenew or GoodForUpload so cannot check
+		contract = c.Contracts()[0]
+		if contract.Utility.Locked {
+			return errors.New("contract should be !Locked")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
 // testWalletShim is used to test the walletBridge type.
 type testWalletShim struct {
 	nextAddressCalled bool
