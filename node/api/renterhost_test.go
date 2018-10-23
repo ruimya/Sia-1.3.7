@@ -1243,36 +1243,56 @@ func TestRenterAllowance(t *testing.T) {
 		}
 	}
 }
-
-// TestHostAndRentReload sets up an integration test where a host and renter
-// do basic uploads and downloads, with an intervening shutdown+startup.
-func TestHostAndRentReload(t *testing.T) {
+func TestRepeat(t *testing.T) {
 	if testing.Short() {
 		t.SkipNow()
 	}
-	t.Parallel()
-	st, err := createServerTester(t.Name())
-	if err != nil {
-		t.Fatal(err)
+	i := 0
+	for i < 100 {
+		st, err := createServerTester(t.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := hostAndRentReload(t, st); err != nil {
+			t.Fatal(err)
+		}
+		// st.panicClose()
+		i++
+		if i%10 == 0 {
+			fmt.Printf("%v successful tests\n", i)
+		}
 	}
+}
+
+// TestHostAndRentReload sets up an integration test where a host and renter
+// do basic uploads and downloads, with an intervening shutdown+startup.
+func hostAndRentReload(t *testing.T, st *serverTester) error {
+	// if testing.Short() {
+	// 	t.SkipNow()
+	// }
+	// t.Parallel()
+	// st, err := createServerTester(t.Name())
+	// if err != nil {
+	// 	t.Fatal(err)
+	// }
 
 	// Announce the host and start accepting contracts.
-	err = st.announceHost()
+	err := st.announceHost()
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	err = st.acceptContracts()
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	err = st.setHostStorage()
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	// Mine a block so that the wallet reclaims refund outputs
 	_, err = st.miner.AddBlock()
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 
 	// Set an allowance for the renter, allowing a contract to be formed.
@@ -1285,7 +1305,7 @@ func TestHostAndRentReload(t *testing.T) {
 	allowanceValues.Set("hosts", fmt.Sprint(recommendedHosts))
 	err = st.stdPostAPI("/renter", allowanceValues)
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 
 	// Block until the allowance has finished forming contracts.
@@ -1301,14 +1321,14 @@ func TestHostAndRentReload(t *testing.T) {
 		return nil
 	})
 	if err != nil {
-		t.Fatal("allowance setting failed")
+		return fmt.Errorf("allowance setting failed")
 	}
 
 	// Create a file.
 	path := filepath.Join(st.dir, "test.dat")
 	err = createRandFile(path, 1024)
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 
 	// Upload the file to the renter.
@@ -1316,7 +1336,7 @@ func TestHostAndRentReload(t *testing.T) {
 	uploadValues.Set("source", path)
 	err = st.stdPostAPI("/renter/upload/test", uploadValues)
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	// Only one piece will be uploaded (10% at current redundancy).
 	var rf RenterFiles
@@ -1325,45 +1345,45 @@ func TestHostAndRentReload(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	if len(rf.Files) != 1 || rf.Files[0].UploadProgress < 10 {
-		t.Fatal("the uploading is not succeeding for some reason:", rf.Files[0])
+		return fmt.Errorf("the uploading is not succeeding for some reason: %v", rf.Files[0])
 	}
 
 	// Try downloading the file.
 	downpath := filepath.Join(st.dir, "testdown.dat")
 	err = st.stdGetAPI("/renter/download/test?destination=" + downpath)
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	// Check that the download has the right contents.
 	orig, err := ioutil.ReadFile(path)
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	download, err := ioutil.ReadFile(downpath)
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	if bytes.Compare(orig, download) != 0 {
-		t.Fatal("data mismatch when downloading a file")
+		return fmt.Errorf("data mismatch when downloading a file")
 	}
 
 	// The renter's downloads queue should have 1 entry now.
 	var queue RenterDownloadQueue
 	if err = st.getAPI("/renter/downloads", &queue); err != nil {
-		t.Fatal(err)
+		return err
 	}
 	if len(queue.Downloads) != 1 {
-		t.Fatalf("expected renter to have 1 download in the queue; got %v", len(queue.Downloads))
+		return fmt.Errorf("expected renter to have 1 download in the queue; got %v", len(queue.Downloads))
 	}
 
 	// close and reopen the server
 	err = st.server.Close()
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	st, err = assembleServerTester(st.walletKey, st.dir)
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	defer st.server.panicClose()
 
@@ -1373,12 +1393,12 @@ func TestHostAndRentReload(t *testing.T) {
 	announceValues.Set("address", string(st.host.ExternalSettings().NetAddress))
 	err = st.stdPostAPI("/host/announce", announceValues)
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	// Mine a block.
 	_, err = st.miner.AddBlock()
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	err = build.Retry(100, time.Millisecond*100, func() error {
 		var hosts HostdbActiveGET
@@ -1392,26 +1412,27 @@ func TestHostAndRentReload(t *testing.T) {
 		return nil
 	})
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 
 	// Try downloading the file.
 	err = st.stdGetAPI("/renter/download/test?destination=" + downpath)
 	if err != nil {
-		t.Fatal(err)
+		return err // failing line
 	}
 	// Check that the download has the right contents.
 	orig, err = ioutil.ReadFile(path)
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	download, err = ioutil.ReadFile(downpath)
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	if bytes.Compare(orig, download) != 0 {
-		t.Fatal("data mismatch when downloading a file")
+		return fmt.Errorf("data mismatch when downloading a file")
 	}
+	return nil
 }
 
 // TestHostAndRenterRenewInterrupt
