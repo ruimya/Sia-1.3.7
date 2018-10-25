@@ -1039,8 +1039,11 @@ func TestRenterAddNodes(t *testing.T) {
 	}
 
 	// Run tests
-	if err := runRenterTests(t, groupParams, subTests); err != nil {
-		t.Fatal(err)
+	for i := 0; i < 10; i++ {
+		if err := runRenterTests(t, groupParams, subTests); err != nil {
+			t.Fatal(err)
+		}
+		fmt.Println("Success Test", i)
 	}
 }
 

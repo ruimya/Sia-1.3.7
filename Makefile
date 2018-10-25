@@ -94,7 +94,7 @@ test-v:
 	go test -race -v -short -tags='debug testing netgo' -timeout=15s $(pkgs) -run=$(run)
 test-long: clean fmt vet lint
 	@mkdir -p cover
-	go test --coverprofile='./cover/cover.out' -v -race -tags='testing debug netgo' -timeout=1800s $(pkgs) -run=$(run)
+	go test --coverprofile='./cover/cover.out' -v -race -tags='testing debug netgo' -timeout=18000s ./siatest/renter -run=TestRenterAddNodes
 test-vlong: clean fmt vet lint
 	@mkdir -p cover
 	go test --coverprofile='./cover/cover.out' -v -race -tags='testing debug vlong netgo' -timeout=20000s $(pkgs) -run=$(run)
